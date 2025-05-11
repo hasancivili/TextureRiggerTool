@@ -1,0 +1,59 @@
+/*
+2D Texture Rigger Installer
+Drag and drop this file into the Maya viewport to install.
+Copyright 2021 by Hasan Civili. All Rights Reserved. (Adapted for 2D Texture Rigger)
+*/
+
+global proc textureRiggerToolInstall() {
+    // Get the path of this MEL script
+    // whatIs returns "Mel procedure found in: /path/to/install.mel"
+    string $whatIsResult = `whatIs textureRiggerToolInstall`;
+    string $scriptPathPrefix = "Mel procedure found in: ";
+    int $prefixLength = size($scriptPathPrefix);
+    string $thisMelFilePath = `substring $whatIsResult ($prefixLength + 1) 999`;
+
+    // Derive the path to install.py (assumed to be in the same directory)
+    string $pythonInstallScriptPath = `substitute "install.mel" $thisMelFilePath "install.py"`;
+    $pythonInstallScriptPath = fromNativePath($pythonInstallScriptPath); // Ensure forward slashes for Python
+
+    // Check if the python script exists
+    if (!`filetest -f $pythonInstallScriptPath`) {
+        warning ("2D Texture Rigger Installer: Cannot find install.py at: " + $pythonInstallScriptPath + "\\nPlease ensure install.py is in the same directory as install.mel.");
+        return;
+    }
+    
+    // Escape backslashes in the path for the Python string literal
+    // FromNativePath should give forward slashes. A Python raw string r'D:/path/to/file.py' is good.
+    string $pythonInstallScriptPathEscaped = "r'" + $pythonInstallScriptPath + "'";    // Construct Python command to load and execute install.py
+    // Using a simpler approach with direct execution
+    string $pythonCommand = "";
+    $pythonCommand += "import sys\n";
+    $pythonCommand += "import os\n";
+    $pythonCommand += "import maya.cmds as cmds\n";
+    $pythonCommand += "script_path = " + $pythonInstallScriptPathEscaped + "\n";
+    $pythonCommand += "print(f'[2D Texture Rigger Installer MEL] Attempting to execute {script_path}')\n";
+    $pythonCommand += "try:\n";
+    $pythonCommand += "    # Add the directory to sys.path\n";
+    $pythonCommand += "    script_dir = os.path.dirname(script_path)\n";
+    $pythonCommand += "    if script_dir not in sys.path:\n";
+    $pythonCommand += "        sys.path.append(script_dir)\n";
+    $pythonCommand += "        print(f'[2D Texture Rigger Installer MEL] Added {script_dir} to sys.path')\n";
+    $pythonCommand += "    \n";    
+    $pythonCommand += "    TEXTURERIGGER_SCRIPT_PATH = script_path\n";
+    $pythonCommand += "    \n";
+    $pythonCommand += "    # Execute the Python script. \n";
+    $pythonCommand += "    # The script itself (install.py) is expected to handle shelf button creation \n";
+    $pythonCommand += "    # via its 'if __name__ == \"__main__\":' block, using TEXTURERIGGER_SCRIPT_PATH.\n";
+    $pythonCommand += "    code_to_exec = open(script_path).read()\n";
+    $pythonCommand += "    exec(code_to_exec)\n";
+    $pythonCommand += "    print(f'[2D Texture Rigger Installer MEL] Python script execution finished: {script_path}')\n";
+    $pythonCommand += "except Exception as e:\n";
+    $pythonCommand += "    print(f'[2D Texture Rigger Installer MEL] Error during Python script execution: {e}')\n";
+    $pythonCommand += "    import traceback\n";
+    $pythonCommand += "    traceback.print_exc()\n";
+    
+    python($pythonCommand);
+}
+
+// Call the installation procedure
+textureRiggerToolInstall();
