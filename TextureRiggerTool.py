@@ -90,14 +90,14 @@ class TextureRiggerUI: # Changed from UVToolUI
         
         # Name prefix field moved here (after mesh selection, before locator creation)
         name_row_layout = cmds.rowColumnLayout(numberOfColumns=2, columnWidth=[(1, 80), (2, 300)], parent=step1_col_layout, rowSpacing=(1,3))
-        cmds.text(label="Locator Prefix:", align="right")
+        cmds.text(label="Prefix:", align="right")
         # Ensure the changeCommand is correctly connected to on_name_changed
         self.name_field = cmds.textField(text=self.name_prefix, parent=name_row_layout, 
                                     changeCommand=self.on_name_changed)
         cmds.setParent("..") # name_row_layout
         
         # New button: Create locator (with current prefix) on the selected mesh
-        self.create_locator_button = cmds.button(label="Create Locator (with current Prefix)", command=self.on_create_locator_click, parent=step1_col_layout, height=30, enable=False)
+        self.create_locator_button = cmds.button(label="Create Locator", command=self.on_create_locator_click, parent=step1_col_layout, height=30, enable=False)
         
         cmds.text(label="Created Locators:", align="left", parent=step1_col_layout)
         self.locator_list_widget = cmds.textScrollList(numberOfRows=4, allowMultiSelection=False, parent=step1_col_layout, height=60)
@@ -366,8 +366,8 @@ class TextureRiggerUI: # Changed from UVToolUI
 
         if all_successful:
             cmds.headsUpMessage(f"All selected textures connected and scene organized.", time=5.0)
-            # Disable Step 3 button to prevent re-connection without reset? Or allow re-connection?
-            # For now, let's allow it, but a reset might be cleaner.
+            # Reset the tool UI to initial state so user can start with a new mesh
+            self.reset_tool_state()
         else:
             cmds.warning("Some textures could not be connected. Please check the script editor for details.")
 
