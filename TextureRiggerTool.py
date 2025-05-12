@@ -14,42 +14,48 @@ importlib.reload(step3_logic)
 class TextureRiggerUI: # Changed from UVToolUI
     def __init__(self):
         self.window_name = "textureRiggerMainWindow" # Changed from "uvToolMainWindow"
-        self.ui_title = "Texture Rigger 0.0.1" # Changed from "UV Based Follicle Tool"
+        self.ui_title = "Texture Rigger 0.0.2" # Changed from "UV Based Follicle Tool"
 
         self.selected_mesh_transform = None
         self.selected_mesh_shape = None
-        self.created_locator = None
-        self.created_follicle = None
-        self.parent_group_in_follicle = None
-        self.name_prefix = "Prefix" # Default name prefix - Changed from "uv"
         
-        # Added for Step 3 - Updated with all texture-related nodes including layeredTexture
-        self.selected_texture_file = None
-        self.created_file_node = None
-        self.created_projection_node = None
-        self.created_place2d_node = None
-        self.created_place3d_node = None
-        self.created_layered_texture = None
-        self.connected_material = None
+        # Data storage for multiple locators and their associated nodes
+        # self.locators_data will store: {prefix: locator_name}
+        self.locators_data = {}
+        # self.follicles_data will store: {prefix: {'follicle': follicle_node, 'control': control_node, 'locator_at_creation': locator_node_used_for_creation}}
+        self.follicles_data = {}
+        # self.textures_data will store: 
+        # {prefix: {'file_path': path, 'file_node': node, 'projection_node': node, 
+        #           'place2d_node': node, 'place3d_node': node, 
+        #           'layered_texture': node, 'material': node}}
+        self.textures_data = {}
+        
+        self.name_prefix = "Prefix" # Default name prefix for the *next* locator
 
         # Variables for UI elements
+        self.name_field = None
+
+        # Step 1 UI
         self.step1_frame = None
-        self.select_mesh_button = None
+        self.select_mesh_button = None # Changed: Button to select mesh only
+        self.create_locator_button = None # New: Button to create locator with current prefix
+        self.locator_list_widget = None # List to display created locators
         self.step1_status_label = None
 
+        # Step 2 UI
         self.step2_frame = None
-        self.create_follicle_button = None
+        self.create_follicles_button = None
         self.step2_status_label = None
         
-        # Variables for Step 3 UI elements
+        # Step 3 UI
         self.step3_frame = None
-        self.select_texture_button = None
-        self.connect_texture_button = None
-        self.texture_path_label = None
+        self.texture_selection_layout = None # Layout for dynamic texture rows
+        self.texture_path_fields = {} # {prefix: ui_textField_widget}
+        self.select_texture_buttons = {} # {prefix: ui_button_widget}
+        self.connect_all_textures_button = None
         self.step3_status_label = None
 
         self.delete_tool_nodes_button = None
-        self.name_field = None # Variable for name field
 
     def on_window_close(self, *args):
         """
@@ -68,47 +74,58 @@ class TextureRiggerUI: # Changed from UVToolUI
         self.window = cmds.window(
             self.window_name, 
             title=self.ui_title, 
-            widthHeight=(400, 400), 
+            widthHeight=(450, 600), # Increased height for more UI elements
             sizeable=True,
             closeCommand=self.on_window_close  # Add window close command
         )
         
         main_layout = cmds.columnLayout(adjustableColumn=True, rowSpacing=10, parent=self.window)
 
-        # --- Name Prefix --- #
-        name_frame = cmds.frameLayout("name_frame", label="Name Prefix", collapsable=False, collapse=False, parent=main_layout, marginWidth=10, marginHeight=5)
-        name_layout = cmds.rowColumnLayout(numberOfColumns=2, columnWidth=[(1, 100), (2, 280)], parent=name_frame)
-        cmds.text(label="Prefix:", align="right", parent=name_layout)
-        self.name_field = cmds.textField(text=self.name_prefix, parent=name_layout, 
-                                        changeCommand=self.on_name_changed)
-        cmds.setParent("..") # name_layout
-        cmds.setParent("..") # name_frame
-
         # --- Step 1 --- #
-        self.step1_frame = cmds.frameLayout("step1_frame", label="STEP 1: Select Mesh & Create Locator", collapsable=False, collapse=False, parent=main_layout, marginWidth=10, marginHeight=5)
+        self.step1_frame = cmds.frameLayout("step1_frame", label="STEP 1: Select Mesh & Create Locators", collapsable=False, collapse=False, parent=main_layout, marginWidth=10, marginHeight=5)
         step1_col_layout = cmds.columnLayout(adjustableColumn=True, parent=self.step1_frame, rowSpacing=5)
-        self.select_mesh_button = cmds.button(label="Select Mesh and Create Locator", command=self.on_select_mesh_click, parent=step1_col_layout, height=30)
+        
+        # Modified: Changed button to only select mesh, not create locator immediately
+        self.select_mesh_button = cmds.button(label="Select Mesh", command=self.on_select_mesh_click, parent=step1_col_layout, height=30)
+        
+        # Name prefix field moved here (after mesh selection, before locator creation)
+        name_row_layout = cmds.rowColumnLayout(numberOfColumns=2, columnWidth=[(1, 80), (2, 300)], parent=step1_col_layout, rowSpacing=(1,3))
+        cmds.text(label="Locator Prefix:", align="right")
+        # Ensure the changeCommand is correctly connected to on_name_changed
+        self.name_field = cmds.textField(text=self.name_prefix, parent=name_row_layout, 
+                                    changeCommand=self.on_name_changed)
+        cmds.setParent("..") # name_row_layout
+        
+        # New button: Create locator (with current prefix) on the selected mesh
+        self.create_locator_button = cmds.button(label="Create Locator (with current Prefix)", command=self.on_create_locator_click, parent=step1_col_layout, height=30, enable=False)
+        
+        cmds.text(label="Created Locators:", align="left", parent=step1_col_layout)
+        self.locator_list_widget = cmds.textScrollList(numberOfRows=4, allowMultiSelection=False, parent=step1_col_layout, height=60)
+        
         self.step1_status_label = cmds.text(label="Status: Waiting for mesh selection...", align="left", parent=step1_col_layout)
         cmds.setParent("..") # step1_col_layout
         cmds.setParent("..") # step1_frame
 
         # --- Step 2 --- #
-        self.step2_frame = cmds.frameLayout("step2_frame", label="STEP 2: Create Follicle and  Control Curve", collapsable=False, collapse=False, parent=main_layout, marginWidth=10, marginHeight=5, enable=False) # Initially disabled
+        self.step2_frame = cmds.frameLayout("step2_frame", label="STEP 2: Create Follicles and Control Curves", collapsable=False, collapse=False, parent=main_layout, marginWidth=10, marginHeight=5, enable=False) # Initially disabled
         step2_col_layout = cmds.columnLayout(adjustableColumn=True, parent=self.step2_frame, rowSpacing=5)
-        cmds.text(label="Move the created locator to the desired position on the mesh.", align="left", parent=step2_col_layout)
-        self.create_follicle_button = cmds.button(label="Create Control Curve", command=self.on_create_follicle_click, parent=step2_col_layout, height=30)
+        cmds.text(label="Move the created locators to desired positions on the mesh.", align="left", parent=step2_col_layout)
+        self.create_follicles_button = cmds.button(label="Create Follicles and Control Curves", command=self.on_create_follicles_click, parent=step2_col_layout, height=30)
         self.step2_status_label = cmds.text(label="Status: Waiting for locator positioning and follicle creation...", align="left", parent=step2_col_layout)
         cmds.setParent("..") # step2_col_layout
         cmds.setParent("..") # step2_frame
 
         # --- Step 3 --- #
-        self.step3_frame = cmds.frameLayout("step3_frame", label="STEP 3: Select Texture & Connect to Material", collapsable=False, collapse=False, parent=main_layout, marginWidth=10, marginHeight=5, enable=False) # Initially disabled
-        step3_col_layout = cmds.columnLayout(adjustableColumn=True, parent=self.step3_frame, rowSpacing=5)
-        self.select_texture_button = cmds.button(label="Select Texture File", command=self.on_select_texture_click, parent=step3_col_layout, height=30)
-        self.texture_path_label = cmds.text(label="Selected Texture: None", align="left", parent=step3_col_layout)
-        self.connect_texture_button = cmds.button(label="Connect Texture to Material", command=self.on_connect_texture_click, parent=step3_col_layout, height=30, enable=False)
-        self.step3_status_label = cmds.text(label="Status: Waiting for texture selection...", align="left", parent=step3_col_layout)
-        cmds.setParent("..") # step3_col_layout
+        self.step3_frame = cmds.frameLayout("step3_frame", label="STEP 3: Select Textures & Connect to Materials", collapsable=False, collapse=False, parent=main_layout, marginWidth=10, marginHeight=5, enable=False) # Initially disabled
+        step3_top_col_layout = cmds.columnLayout(adjustableColumn=True, parent=self.step3_frame, rowSpacing=5)
+
+        # This layout will be populated dynamically
+        self.texture_selection_layout = cmds.columnLayout(adjustableColumn=True, rowSpacing=3, parent=step3_top_col_layout) 
+        cmds.setParent("..") # texture_selection_layout (back to step3_top_col_layout)
+
+        self.connect_all_textures_button = cmds.button(label="Connect All Selected Textures to Materials", command=self.on_connect_all_textures_click, parent=step3_top_col_layout, height=30, enable=False)
+        self.step3_status_label = cmds.text(label="Status: Waiting for follicle creation to enable texture selection...", align="left", parent=step3_top_col_layout)
+        cmds.setParent("..") # step3_top_col_layout
         cmds.setParent("..") # step3_frame
 
         # --- Cleanup --- #
@@ -123,16 +140,30 @@ class TextureRiggerUI: # Changed from UVToolUI
     def on_name_changed(self, new_name):
         """
         Called when the name field is changed.
+        Updates the self.name_prefix for the *next* locator to be created.
         """
+        print(f"DEBUG: on_name_changed called with new_name = '{new_name}'")
+        
         if not new_name or new_name.isspace():
-            self.name_prefix = "textureRigger" # If empty, use default value - Changed from "uv"
+            # If field is cleared, you might want a default or to prevent empty prefixes
+            # For now, let's use a generic default if user clears it.
+            self.name_prefix = "textureRig" 
             cmds.textField(self.name_field, edit=True, text=self.name_prefix)
+            cmds.warning("Prefix cannot be empty. Using default 'textureRig'.")
         else:
-            # Clean special characters and spaces
             cleaned_name = ''.join(c for c in new_name if c.isalnum() or c == '_')
             if cleaned_name != new_name:
                 cmds.textField(self.name_field, edit=True, text=cleaned_name)
             self.name_prefix = cleaned_name
+            print(f"DEBUG: self.name_prefix updated to '{self.name_prefix}'")
+
+    def _is_prefix_unique(self, prefix_to_check):
+        return prefix_to_check not in self.locators_data
+
+    def _update_locator_list_widget(self):
+        cmds.textScrollList(self.locator_list_widget, edit=True, removeAll=True)
+        for prefix, locator_name in self.locators_data.items():
+            cmds.textScrollList(self.locator_list_widget, edit=True, append=f"{prefix}: {locator_name}")
 
     def update_step1_status(self, message, success=None):
         color = (0.9, 0.9, 0.9) # Default
@@ -158,182 +189,257 @@ class TextureRiggerUI: # Changed from UVToolUI
             color = (0.9, 0.6, 0.6) # Red
         cmds.text(self.step3_status_label, edit=True, label=f"Status: {message}", backgroundColor=color)
 
-    def on_select_mesh_click(self, *args):
-        self.reset_step2_and_beyond() # Clean up leftovers from previous steps
-        
-        mesh_transform, mesh_shape, locator = step1_logic.run_step1_logic(self.name_prefix)
-        if mesh_transform and mesh_shape and locator:
-            self.selected_mesh_transform = mesh_transform
-            self.selected_mesh_shape = mesh_shape
-            self.created_locator = locator
-            self.update_step1_status(f"Locator '{locator}' created for mesh '{mesh_transform}'. Position the locator.", success=True)
-            cmds.frameLayout(self.step2_frame, edit=True, enable=True) # Activate Step 2
-            cmds.button(self.select_mesh_button, edit=True, enable=False) # Disable Step 1 button
-            self.update_step2_status("Move the locator and click 'Create Follicle'.")
-        else:
-            self.selected_mesh_transform = None
-            self.selected_mesh_shape = None
-            self.created_locator = None
-            self.update_step1_status("Failed to create locator. Check script editor for details.", success=False)
-            cmds.frameLayout(self.step2_frame, edit=True, enable=False)
-
-    def on_create_follicle_click(self, *args):
-        if not self.selected_mesh_shape or not self.created_locator:
-            self.update_step2_status("Missing mesh or locator from Step 1. Please restart Step 1.", success=False)
+    def on_create_follicles_click(self, *args):
+        if not self.selected_mesh_shape:
+            self.update_step2_status("Mesh not selected from Step 1.", success=False)
             return
 
-        if not cmds.objExists(self.selected_mesh_shape) or not cmds.objExists(self.created_locator):
-            self.update_step2_status("Mesh or locator from Step 1 no longer exists in the scene.", success=False)
-            self.reset_tool_state()
+        if not self.locators_data:
+            self.update_step2_status("No locators created in Step 1.", success=False)
             return
 
-        # Store the locator name, as it may be deleted in step2_logic or will be deleted after processing
-        locator_to_delete_after_success = self.created_locator 
+        all_successful = True
+        created_count = 0
+        self.follicles_data.clear() # Clear previous follicle data
 
-        # Run Step 2 logic - also send the name prefix
-        follicle_transform, main_control = step2_logic.run_step2_logic(self.selected_mesh_shape, locator_to_delete_after_success, self.name_prefix)
-        
-        if follicle_transform and main_control:
-            self.created_follicle = follicle_transform
-            self.parent_group_in_follicle = main_control # Main control object 
-
-            self.update_step2_status(f"Follicle '{follicle_transform}' and control '{main_control}' created and set up.", success=True)
-            cmds.button(self.create_follicle_button, edit=True, enable=False) # Disable Step 2 button
+        for prefix, locator_name in self.locators_data.items():
+            if not cmds.objExists(self.selected_mesh_shape) or not cmds.objExists(locator_name):
+                self.update_step2_status(f"Mesh or locator '{locator_name}' (prefix: '{prefix}') no longer exists.", success=False)
+                all_successful = False
+                # self.reset_tool_state() # Consider a more granular reset or error handling
+                continue # Skip this locator
             
-            # Delete the locator created in Step 1
-            if locator_to_delete_after_success and cmds.objExists(locator_to_delete_after_success):
+            # Run Step 2 logic for each locator
+            follicle_transform, main_control = step2_logic.run_step2_logic(self.selected_mesh_shape, locator_name, prefix)
+            
+            if follicle_transform and main_control:
+                self.follicles_data[prefix] = {
+                    'follicle': follicle_transform, 
+                    'control': main_control,
+                    'locator_at_creation': locator_name # Store which locator was used
+                }
+                created_count += 1
+                # Delete the locator used for this follicle after successful creation
                 try:
-                    cmds.delete(locator_to_delete_after_success)
-                    print(f"Initial locator '{locator_to_delete_after_success}' deleted.")
-                    if self.created_locator == locator_to_delete_after_success:
-                         self.created_locator = None # Update UI state
+                    if cmds.objExists(locator_name):
+                        cmds.delete(locator_name)
+                        print(f"Locator '{locator_name}' for prefix '{prefix}' deleted after follicle creation.")
                 except Exception as e:
-                    print(f"Could not delete initial locator '{locator_to_delete_after_success}': {e}")
-            
-            # If self.created_locator is already None or is the same as the deleted one, make it None
-            if self.created_locator == locator_to_delete_after_success:
-                self.created_locator = None
+                    print(f"Could not delete locator '{locator_name}': {e}")
+            else:
+                all_successful = False
+                self.update_step2_status(f"Failed to create follicle for prefix '{prefix}'. Check script editor.", success=False)
+                # Decide if we should stop or continue with others
 
-            # Activate Step 3
+        # After processing all locators, update their status in self.locators_data or remove them
+        # For simplicity, we'll clear locators_data as they are processed and deleted.
+        # A more robust approach might mark them as processed.
+        # For now, let's assume successful locators are deleted by step2_logic or above.
+        # We need to update the UI list if locators are deleted one by one.
+        # Let's refine locator deletion: only delete from self.locators_data if follicle was made.
+        
+        processed_prefixes = list(self.follicles_data.keys()) # Get prefixes for which follicles were made
+        for prefix in processed_prefixes:
+            if prefix in self.locators_data:
+                # We already deleted the Maya node, now remove from our tracking dict
+                del self.locators_data[prefix]
+        self._update_locator_list_widget() # Refresh the list (should be empty or show remaining if some failed)
+
+        if created_count > 0:
+            self.update_step2_status(f"Successfully created {created_count} follicle(s)/control(s).", success=True)
+            cmds.button(self.create_follicles_button, edit=True, enable=False) # Disable after use
+            cmds.button(self.create_locator_button, edit=True, enable=False) # Disable creating more locators now
+            cmds.textField(self.name_field, edit=True, enable=False) # Disable prefix field
+            
+            self._populate_texture_selection_ui() # Setup Step 3 UI
             cmds.frameLayout(self.step3_frame, edit=True, enable=True)
-            self.update_step3_status("Select a texture file and connect it to the material.")
-        else:
-            self.update_step2_status("Failed to create follicle. Check script editor for details.", success=False)
+            self.update_step3_status(f"Select textures for {len(self.follicles_data)} prefix(es).")
+            if self.follicles_data: # Enable connect button if there are follicles
+                 cmds.button(self.connect_all_textures_button, edit=True, enable=True)
+        elif not self.locators_data: # No locators left and none created
+             self.update_step2_status("No locators available or all failed. Please restart Step 1.", success=False)
+        else: # Some locators might remain if they failed
+            self.update_step2_status(f"Processed locators. {created_count} created. Some may have failed or remain.", success=all_successful)
 
-    def on_select_texture_click(self, *args):
-        # Ask the user to select a file
-        file_path = cmds.fileDialog2(fileMode=1, caption="Select Texture File")
-        if file_path:
-            self.selected_texture_file = file_path[0]
-            cmds.text(self.texture_path_label, edit=True, label=f"Selected Texture: {self.selected_texture_file}")
-            cmds.button(self.connect_texture_button, edit=True, enable=True)
-            self.update_step3_status("Texture file selected. Click 'Connect Texture to Material'.", success=True)
-        else:
-            self.update_step3_status("No texture file selected.", success=False)
+    def _populate_texture_selection_ui(self):
+        # Clear previous UI elements in the dynamic layout
+        children = cmds.columnLayout(self.texture_selection_layout, query=True, childArray=True) or []
+        for child in children:
+            cmds.deleteUI(child)
+        
+        self.texture_path_fields.clear()
+        self.select_texture_buttons.clear()
 
-    def on_connect_texture_click(self, *args):
-        if not self.selected_texture_file:
-            self.update_step3_status("No texture file selected. Please select a texture file first.", success=False)
+        if not self.follicles_data:
+            cmds.text(label="No follicles created. Cannot select textures.", parent=self.texture_selection_layout)
             return
 
+        for prefix in self.follicles_data.keys():
+            row_layout = cmds.rowColumnLayout(numberOfColumns=3, columnWidth=[(1, 120), (2, 200), (3, 100)], parent=self.texture_selection_layout, rowSpacing=(1,3))
+            cmds.text(label=f"Texture for '{prefix}':", align="right")
+            # Using a textField to display path, could be a text label if non-editable path is preferred
+            path_field = cmds.textField(text="No texture selected", editable=False, width=190) 
+            select_button = cmds.button(label="Select File...", command=lambda ignored_arg, p_captured=prefix: self._on_select_single_texture_click(p_captured))
+            cmds.setParent("..") # row_layout
+
+            self.texture_path_fields[prefix] = path_field
+            self.select_texture_buttons[prefix] = select_button
+            # Initialize texture data for this prefix
+            self.textures_data[prefix] = {
+                'file_path': None, 'file_node': None, 'projection_node': None, 
+                'place2d_node': None, 'place3d_node': None, 
+                'layered_texture': None, 'material': None
+            }
+
+    def _on_select_single_texture_click(self, prefix):
+        file_paths = cmds.fileDialog2(fileMode=1, caption=f"Select Texture for Prefix: {prefix}")
+        if file_paths and file_paths[0]:
+            selected_file = file_paths[0]
+            self.textures_data[prefix]['file_path'] = selected_file
+            cmds.textField(self.texture_path_fields[prefix], edit=True, text=selected_file)
+            self.update_step3_status(f"Texture for '{prefix}' selected. Ready to connect all.", success=True)
+        else:
+            self.update_step3_status(f"Texture selection cancelled for '{prefix}'.", success=False)
+
+    def on_connect_all_textures_click(self, *args):
         if not self.selected_mesh_transform:
-            self.update_step3_status("No mesh selected from Step 1. Please restart the tool.", success=False)
+            cmds.warning("No mesh selected or initial locator created. Please complete Step 1.")
             return
 
-        # Run Step 3 logic - send name prefix and follicle transform
-        # The part related to alpha texture has been removed. Only run_step3_logic will be called.
-        file_node, projection_node, place2d_node, place3d_node, layered_texture_node, material = step3_logic.run_step3_logic(
-            self.selected_mesh_transform, 
-            self.selected_texture_file, 
-            self.name_prefix,
-            self.created_follicle  # Pass the follicle transform for binding to _bind joint
-        )
-            
-        if file_node and projection_node and material:
-            self.created_file_node = file_node
-            self.created_projection_node = projection_node
-            self.created_place2d_node = place2d_node
-            self.created_place3d_node = place3d_node
-            self.created_layered_texture = layered_texture_node
-            self.connected_material = material
-
-            # Organize scene hierarchy - This part can remain unchanged, place3d_node will still be organized.
-            if self.created_place3d_node and self.created_follicle:
-                step3_logic.organize_scene_hierarchy(self.selected_mesh_transform, self.created_follicle, self.created_place3d_node, self.name_prefix)
-            
-        else:
-            self.update_step3_status("Failed to connect texture to material. Check script editor for details.", success=False)
+        if not self.textures_data:
+            cmds.warning("No textures selected or locators processed for texture connection.")
             return
-                
-        # Status message about layered textures
-        if self.created_layered_texture:
-            connections = cmds.listConnections(f"{self.created_layered_texture}.inputs[*].color", source=True, destination=False)
-            texture_count = len(connections) if connections else 0
+
+        all_successful = True
+        for prefix, tex_data in self.textures_data.items():
+            texture_file_path = tex_data.get('file_path')
+            if not texture_file_path or texture_file_path == "No texture selected":
+                cmds.warning(f"No texture file selected for prefix '{prefix}'. Skipping.")
+                continue
+
+            # Ensure created_follicle_transform is correctly retrieved for the current prefix
+            follicle_info = self.follicles_data.get(prefix)
+            if not follicle_info:
+                cmds.warning(f"Follicle data not found for prefix '{prefix}'. Cannot connect texture.")
+                all_successful = False
+                continue
             
-            message = f"Texture connected to material '{self.connected_material}' using projection. {texture_count} textures in layer."
+            # The key should be 'follicle' instead of 'follicle_transform' to match how it's stored in on_create_follicles_click
+            created_follicle_transform = follicle_info.get('follicle')
+            if not created_follicle_transform:
+                cmds.warning(f"Follicle transform not found for prefix '{prefix}' in on_connect_all_textures_click. Skipping texture connection.")
+                all_successful = False
+                continue
+            
+            # DEBUG LINE (can be removed once stable)
+            print(f"DEBUG step3_logic call: Mesh='{self.selected_mesh_transform}', TextureFile='{texture_file_path}', Prefix='{prefix}', Follicle='{created_follicle_transform}'")
+
+            # Call Step 3 logic, now expecting 7 return values
+            # The 7th value is the (potentially updated) mesh transform path after scene organization
+            file_node, projection_node, place2d_node, place3d_node, layered_texture_node, material_node, updated_mesh_transform = step3_logic.run_step3_logic(
+                mesh_transform=self.selected_mesh_transform,
+                image_file_path=texture_file_path,
+                name_prefix=prefix,
+                follicle_transform=created_follicle_transform
+            )
+
+            if file_node:  # Check if connection was successful
+                self.textures_data[prefix].update({
+                    'file_node': file_node,
+                    'projection_node': projection_node,
+                    'place2d_node': place2d_node,
+                    'place3d_node': place3d_node,
+                    'layered_texture_node': layered_texture_node,
+                    'material_node': material_node
+                })
+                # Update the class member for the selected mesh transform with the path returned
+                # by step3_logic, which might have changed due to scene organization (e.g., parenting under GEO group).
+                # This ensures subsequent iterations in this loop use the correct, current mesh path.
+                self.selected_mesh_transform = updated_mesh_transform
+                print(f"Successfully connected texture for prefix '{prefix}'. Mesh is now: {self.selected_mesh_transform}")
+            else:
+                cmds.warning(f"Texture connection failed for prefix '{prefix}'. Nodes not stored.")
+                all_successful = False
+                # If one connection fails, we might still want to continue with others,
+                # but the self.selected_mesh_transform might not be updated if organization didn't run or failed.
+                # However, run_step3_logic should return the original mesh_transform if it fails early.
+
+        if all_successful:
+            cmds.headsUpMessage(f"All selected textures connected and scene organized.", time=5.0)
+            # Disable Step 3 button to prevent re-connection without reset? Or allow re-connection?
+            # For now, let's allow it, but a reset might be cleaner.
         else:
-            message = f"Texture connected to material '{self.connected_material}' using projection."
-            
-        self.update_step3_status(message, success=True)
-        
-        # Reset buttons to allow the user to repeat the process
-        cmds.button(self.select_mesh_button, edit=True, enable=True) # Enable Step 1 button
-        cmds.button(self.create_follicle_button, edit=True, enable=True) # Enable Step 2 button
-        cmds.button(self.select_texture_button, edit=True, enable=True) # Enable texture selection button
-        cmds.button(self.connect_texture_button, edit=True, enable=True) # Enable connect button
-        
-        # Update all step statuses to indicate user can proceed again
-        self.update_step1_status("Ready to select another mesh or continue with current one.", success=True)
-        self.update_step2_status("Ready to create another follicle.", success=True)
-        self.update_step3_status(f"Texture connected successfully. You can select another texture.", success=True)
+            cmds.warning("Some textures could not be connected. Please check the script editor for details.")
 
     def on_delete_tool_nodes_click(self, *args):
         nodes_to_delete = []
-        if self.created_locator and cmds.objExists(self.created_locator):
-            nodes_to_delete.append(self.created_locator)
-            
-        # Check for texture control group node based on prefix
-        texture_ctrl_grp = f"{self.name_prefix}_Texture_ctrl_grp"
-        if cmds.objExists(texture_ctrl_grp):
-            nodes_to_delete.append(texture_ctrl_grp)
-        else:
-            # If control group doesn't exist, try to delete follicle directly
-            if self.created_follicle and cmds.objExists(self.created_follicle):
-                nodes_to_delete.append(self.created_follicle)
-            
-        # Add all texture nodes for Step 3 cleanup
-        if self.created_file_node and cmds.objExists(self.created_file_node):
-            nodes_to_delete.append(self.created_file_node)
-        if self.created_projection_node and cmds.objExists(self.created_projection_node):
-            nodes_to_delete.append(self.created_projection_node)
-        if self.created_place2d_node and cmds.objExists(self.created_place2d_node):
-            nodes_to_delete.append(self.created_place2d_node)
-        if self.created_place3d_node and cmds.objExists(self.created_place3d_node):
-            nodes_to_delete.append(self.created_place3d_node)
-            
-        # Only delete created materials, not existing ones that were used
-        if self.connected_material and cmds.objExists(self.connected_material):
-            # Check if the material name starts with the prefix and ends with "_material"
-            # This indicates it was created by our tool rather than being a pre-existing material
-            material_name = self.connected_material.split('|')[-1].split(':')[-1]
-            if material_name.startswith(f"{self.name_prefix}_material"):
-                nodes_to_delete.append(self.connected_material)
-                print(f"Deleting created material: {self.connected_material}")
-            else:
-                print(f"Preserving existing material: {self.connected_material}")
         
+        # 1. Collect locators from self.locators_data
+        for prefix, locator_name in self.locators_data.items():
+            if locator_name and cmds.objExists(locator_name):
+                nodes_to_delete.append(locator_name)
+
+        # 2. Collect follicle-related nodes from self.follicles_data
+        for prefix, follicle_data in self.follicles_data.items():
+            control_group = follicle_data.get('control')
+            if control_group and cmds.objExists(control_group):
+                if control_group not in nodes_to_delete:
+                    nodes_to_delete.append(control_group)
+            
+            follicle_node = follicle_data.get('follicle')
+            if follicle_node and cmds.objExists(follicle_node):
+                is_child_of_deleted_group = False
+                if control_group and cmds.objExists(control_group) and control_group in nodes_to_delete:
+                    try:
+                        # Check if follicle is under the control group that's already marked for deletion
+                        long_follicle_path = cmds.ls(follicle_node, long=True)[0]
+                        long_control_group_path = cmds.ls(control_group, long=True)[0]
+                        if long_follicle_path.startswith(long_control_group_path + "|"):
+                            is_child_of_deleted_group = True
+                    except Exception as e:
+                        # print(f"Could not determine parentage for {follicle_node} under {control_group}: {e}")
+                        pass # Assume not a child if check fails                
+                if not is_child_of_deleted_group and follicle_node not in nodes_to_delete:
+                    nodes_to_delete.append(follicle_node)
+
+        # 3. Collect texture-related nodes from self.textures_data
+        for prefix, tex_data in self.textures_data.items():
+            material_name = tex_data.get('material')
+            if material_name and cmds.objExists(material_name):
+                if material_name not in nodes_to_delete:
+                    nodes_to_delete.append(material_name)
+            
+            texture_nodes_keys = ['file_node', 'projection_node', 'place2d_node', 'place3d_node', 'layered_texture']
+            for key in texture_nodes_keys:
+                node_name = tex_data.get(key)
+                if node_name and cmds.objExists(node_name):
+                    if node_name not in nodes_to_delete:
+                        nodes_to_delete.append(node_name)
+        
+        # Create a list of unique nodes to delete, preserving order (important for hierarchies)
+        unique_nodes_to_delete = []
         if nodes_to_delete:
-            deleted_count = 0
+            processed_nodes = set()
             for node in nodes_to_delete:
-                if cmds.objExists(node):
+                if node not in processed_nodes:
+                    unique_nodes_to_delete.append(node)
+                    processed_nodes.add(node)
+        
+        deleted_count = 0
+        if unique_nodes_to_delete:
+            print(f"Tool will attempt to delete the following nodes: {unique_nodes_to_delete}")
+            for node in unique_nodes_to_delete:
+                if cmds.objExists(node): # Final check before attempting deletion
                     try:
                         cmds.delete(node)
-                        deleted_count +=1
+                        print(f"Successfully deleted node: {node}")
+                        deleted_count += 1
+                    except RuntimeError as e: 
+                        print(f"Error deleting node {node}: {e}. It might be locked or part of a locked hierarchy.")
                     except Exception as e:
-                        print(f"Error deleting node {node}: {e}")
+                        print(f"Generic error deleting node {node}: {e}")
             
-            print(f"Deleted {deleted_count} tool-generated node(s).")
-            cmds.warning(f"Deleted {deleted_count} tool-generated node(s).")
+            cmds.warning(f"Deleted {deleted_count} out of {len(unique_nodes_to_delete)} targeted tool-generated node(s).")
         else:
             cmds.warning("No tool-generated nodes found to delete (or they were already deleted).")
         
@@ -342,35 +448,137 @@ class TextureRiggerUI: # Changed from UVToolUI
     def reset_step2_and_beyond(self):
         """Resets the UI and state for Step 2 and beyond."""
         cmds.frameLayout(self.step2_frame, edit=True, enable=False)
-        cmds.button(self.create_follicle_button, edit=True, enable=True)
+        cmds.button(self.create_follicles_button, edit=True, enable=True) # Re-enable for new set of locators
         self.update_step2_status("Waiting for locator positioning and follicle creation...")
-        self.created_follicle = None
-        self.parent_group_in_follicle = None
+        self.follicles_data.clear()
 
         # Reset Step 3
         cmds.frameLayout(self.step3_frame, edit=True, enable=False)
-        cmds.button(self.select_texture_button, edit=True, enable=True)
-        cmds.button(self.connect_texture_button, edit=True, enable=False)
-        cmds.text(self.texture_path_label, edit=True, label="Selected Texture: None")
-        self.update_step3_status("Waiting for texture selection...")
-        self.selected_texture_file = None
-        self.created_file_node = None
-        self.connected_material = None
+        # Clear dynamically created texture UI parts
+        children = cmds.columnLayout(self.texture_selection_layout, query=True, childArray=True) or []
+        for child in children:
+            cmds.deleteUI(child)
+        self.texture_path_fields.clear()
+        self.select_texture_buttons.clear()
+        cmds.button(self.connect_all_textures_button, edit=True, enable=False)
+        self.update_step3_status("Waiting for follicle creation to enable texture selection...")
+        self.textures_data.clear()
 
     def reset_tool_state(self):
         """Resets the entire UI and internal variables to the initial state."""
         self.selected_mesh_transform = None
         self.selected_mesh_shape = None
-        if self.created_locator and cmds.objExists(self.created_locator):
-            # User may have deleted it manually, check
-            pass # Let's leave it to the delete button
-        # self.created_locator = None # Managed by the delete button
         
-        self.reset_step2_and_beyond()
+        self.locators_data.clear()
+        self._update_locator_list_widget()
+        
+        self.reset_step2_and_beyond() # This will also clear follicle and texture data
 
+        # Reset Step 1 UI elements to initial state
         cmds.button(self.select_mesh_button, edit=True, enable=True)
+        cmds.button(self.create_locator_button, edit=True, enable=False)  # Disabled until mesh is selected
+        
+        # Reset prefix to default and update both internal state and UI
+        default_prefix = "Prefix"
+        self.name_prefix = default_prefix
+        cmds.textField(self.name_field, edit=True, text=default_prefix, enable=True)
+        
         self.update_step1_status("Waiting for mesh selection...")
         print("Tool state has been reset.")
+
+    def on_select_mesh_click(self, *args):
+        """Handles mesh selection only, without creating locators."""
+        self.reset_step2_and_beyond()  # Clear subsequent steps
+        
+        # Get the selected mesh from Maya
+        selected_objects = cmds.ls(selection=True, transforms=True)
+        if not selected_objects:
+            self.update_step1_status("No objects selected. Please select a mesh.", success=False)
+            return
+
+        # Look for a mesh in the selection
+        mesh_transform = None
+        mesh_shape = None
+        
+        for obj in selected_objects:
+            shapes = cmds.listRelatives(obj, shapes=True) or []
+            for shape in shapes:
+                if cmds.objectType(shape, isType="mesh"):
+                    mesh_transform = obj
+                    mesh_shape = shape
+                    break
+            if mesh_transform:  # Stop after finding first mesh
+                break
+        
+        if not mesh_transform or not mesh_shape:
+            self.update_step1_status("Selected object is not a mesh. Please select a mesh.", success=False)
+            return
+        
+        # Store the mesh for later use
+        self.selected_mesh_transform = mesh_transform
+        self.selected_mesh_shape = mesh_shape
+        
+        self.update_step1_status(f"Mesh '{mesh_transform}' selected. Choose a prefix and create locators.", success=True)
+        cmds.button(self.create_locator_button, edit=True, enable=True)  # Enable locator creation now that mesh is selected
+    
+    def on_create_locator_click(self, *args):
+        """Creates a locator on the already selected mesh using the current prefix."""
+        if not self.selected_mesh_transform or not self.selected_mesh_shape:
+            self.update_step1_status("No mesh selected. Please select a mesh first.", success=False)
+            return
+
+        # Get the current prefix directly from the text field to ensure we have the most recent value
+        current_prefix = cmds.textField(self.name_field, query=True, text=True)
+        # Also update our internal prefix member
+        self.name_prefix = current_prefix
+        
+        print(f"DEBUG: Creating locator with prefix '{current_prefix}'")
+        
+        if not current_prefix or current_prefix.isspace():
+            self.update_step1_status("Prefix for new locator cannot be empty.", success=False)
+            return
+            
+        if not self._is_prefix_unique(current_prefix):
+            self.update_step1_status(f"Prefix '{current_prefix}' already exists. Please use a unique prefix.", success=False)
+            return
+        
+        # Create the locator at the UV point on the selected mesh
+        _dummy_mesh_transform, _dummy_mesh_shape, locator = step1_logic.run_step1_logic(
+            current_prefix, 
+            self.selected_mesh_transform, 
+            self.selected_mesh_shape
+        )
+        
+        if locator:
+            self.locators_data[current_prefix] = locator
+            self._update_locator_list_widget()
+            self.update_step1_status(f"Added locator '{locator}' (prefix: '{current_prefix}'). Position it.", success=True)
+            
+            # Suggest a new prefix for the next locator - better suffix logic
+            if current_prefix.endswith('_1'):
+                base_prefix = current_prefix[:-2]
+                next_prefix = f"{base_prefix}_2"
+            elif current_prefix.endswith('_2'):
+                base_prefix = current_prefix[:-2]
+                next_prefix = f"{base_prefix}_3"
+            elif current_prefix.endswith('_3'):
+                base_prefix = current_prefix[:-2]
+                next_prefix = f"{base_prefix}_4"
+            elif current_prefix.endswith('_4'):
+                base_prefix = current_prefix[:-2]
+                next_prefix = f"{base_prefix}_5"
+            else:
+                next_prefix = f"{current_prefix}_1"
+                
+            print(f"DEBUG: Suggesting next prefix: '{next_prefix}'")
+            cmds.textField(self.name_field, edit=True, text=next_prefix)
+            self.name_prefix = next_prefix
+            
+            # Enable Step 2 once we have at least one locator
+            cmds.frameLayout(self.step2_frame, edit=True, enable=True)
+            self.update_step2_status("Move locators. Create more locators or proceed to create follicles.")
+        else:
+            self.update_step1_status(f"Failed to add locator with prefix '{current_prefix}'. Check script editor.", success=False)
 
 # To start the UI:
 def show_ui():

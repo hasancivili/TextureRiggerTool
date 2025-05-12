@@ -117,46 +117,60 @@ def create_locator_at_point(point, name_prefix="textureRigger"): # Changed defau
     print(f"Locator '{locator[0]}' created at: ({point.x}, {point.y}, {point.z})")
     return locator[0]
 
-def run_step1_logic(name_prefix="textureRigger"): # Changed default name_prefix
+def run_step1_logic(name_prefix, existing_mesh_transform=None, existing_mesh_shape=None):
     """
-    Runs the main logic of Step 1: Mesh selection, UV checking, and locator creation.
+    Runs the main logic of Step 1: Mesh selection/validation, UV checking, and locator creation at UV (0.5, 0.5).
+    This version is adapted for the multi-locator workflow.
     
     Args:
-        name_prefix (str): Name prefix for the locator and other objects.
+        name_prefix (str): Name prefix for the locator.
+        existing_mesh_transform (str, optional): The transform node of an already selected/known mesh.
+        existing_mesh_shape (str, optional): The shape node of an already selected/known mesh.
     
     Returns:
         tuple: (mesh_transform, mesh_shape, locator_name) or (None, None, None)
     """
-    selected_objects = cmds.ls(selection=True, long=True, type="transform")
+    mesh_transform_to_use = existing_mesh_transform
+    mesh_shape_to_use = existing_mesh_shape
 
-    if not selected_objects:
-        cmds.warning("Please select a polygon mesh.")
-        return None, None, None # Return 3 values
-
-    mesh_transform = selected_objects[0]
-    shapes = cmds.listRelatives(mesh_transform, shapes=True, fullPath=True, type="mesh")
-
-    if not shapes:
-        cmds.warning(f"Selected object '{mesh_transform}' is not a polygon mesh or has no mesh shape.")
-        return None, None, None # Return 3 values
+    if not mesh_transform_to_use or not mesh_shape_to_use:
+        selected_objects = cmds.ls(selection=True, long=True, type="transform")
+        if not selected_objects:
+            cmds.warning("Please select a polygon mesh.")
+            return None, None, None
+        
+        mesh_transform_to_use = selected_objects[0]
+        shapes = cmds.listRelatives(mesh_transform_to_use, shapes=True, fullPath=True, type="mesh")
+        if not shapes:
+            cmds.warning(f"Selected object '{mesh_transform_to_use}' is not a polygon mesh or has no mesh shape.")
+            return None, None, None
+        mesh_shape_to_use = shapes[0]
     
-    mesh_shape = shapes[0]
+    # Ensure the identified mesh still exists
+    if not cmds.objExists(mesh_transform_to_use) or not cmds.objExists(mesh_shape_to_use):
+        cmds.warning(f"Mesh '{mesh_transform_to_use}' or its shape '{mesh_shape_to_use}' no longer exists.")
+        return None, None, None
 
     uv_to_check_u, uv_to_check_v = 0.5, 0.5
-    if check_uv_overlap(mesh_shape, uv_to_check_u, uv_to_check_v):
-        cmds.warning(f"UV overlapping detected at point ({uv_to_check_u}, {uv_to_check_v}) (or multiple faces found). Please check your UVs.")
-        return None, None, None # Return 3 values
+    # It's good practice to check for UV overlaps, though check_uv_overlap might need refinement for robustness.
+    # For now, we'll trust the existing check_uv_overlap function.
+    if check_uv_overlap(mesh_shape_to_use, uv_to_check_u, uv_to_check_v):
+        cmds.warning(f"UV overlapping detected at point ({uv_to_check_u}, {uv_to_check_v}) on '{mesh_shape_to_use}' (or multiple faces found). Please check your UVs.")
+        # Depending on strictness, you might allow creation or force user to fix UVs.
+        # For now, returning None to prevent issues.
+        return None, None, None
 
-    world_point = get_world_space_at_uv(mesh_shape, uv_to_check_u, uv_to_check_v)
+    world_point = get_world_space_at_uv(mesh_shape_to_use, uv_to_check_u, uv_to_check_v)
+    
     if world_point:
         locator_name = create_locator_at_point(world_point, name_prefix)
-        if locator_name: # create_locator_at_point can also return None (though unlikely)
-            cmds.select(locator_name, replace=True)
-            return mesh_transform, mesh_shape, locator_name
+        if locator_name:
+            # cmds.select(locator_name, replace=True) # Selection handled by UI tool
+            return mesh_transform_to_use, mesh_shape_to_use, locator_name
         else:
-            cmds.warning(f"Could not create locator.")
-            return None, None, None # Return 3 values
+            cmds.warning(f"Could not create locator with prefix '{name_prefix}'.")
+            return None, None, None
     else:
-        cmds.warning(f"Could not get world coordinate at UV point ({uv_to_check_u}, {uv_to_check_v}).")
-        return None, None, None # Return 3 values
+        cmds.warning(f"Could not get world coordinate at UV point ({uv_to_check_u}, {uv_to_check_v}) for mesh '{mesh_shape_to_use}'.")
+        return None, None, None
 

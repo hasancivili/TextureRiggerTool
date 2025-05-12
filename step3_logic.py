@@ -135,83 +135,91 @@ def connect_texture_to_mesh(mesh_transform, image_file_path, name_prefix="textur
         return None, None, None, None, None, None
         
     # Get the mesh's material - Focus on finding existing materials
-    material_nodes = []
-    material_color_connections = []
-    layered_texture_node = None
-    existing_connection_to_layer = False
-    material = None
-    
+    material = None # This will store the final material to be used.
+    assigned_materials = [] # This list will store materials found on the mesh.
+
     # Try multiple methods to find materials on the mesh to be more robust
+    if cmds.objExists(mesh_transform):
+        # Method 1: Using listSets to find shading groups directly on the transform, then get their surfaceShader connection.
+        shading_groups_from_sets = cmds.listSets(type=1, object=mesh_transform) or []
+        for sg in shading_groups_from_sets:
+            if cmds.attributeQuery('surfaceShader', node=sg, exists=True):
+                mat_conns = cmds.listConnections(f"{sg}.surfaceShader", source=True, destination=False, plugs=False)
+                if mat_conns:
+                    for mat_node in mat_conns:
+                        if cmds.ls(mat_node, materials=True) and mat_node not in assigned_materials:
+                            assigned_materials.append(mat_node)
+
+        # Method 2: If no materials found via listSets, check connections on the mesh's shape node(s).
+        if not assigned_materials:
+            shapes = cmds.listRelatives(mesh_transform, shapes=True, noIntermediate=True, fullPath=True) or []
+            for shape in shapes:
+                # SGs can be connected to shapes via instObjGroups or directly
+                sgs_from_shape = cmds.listConnections(shape, type='shadingEngine')
+                if sgs_from_shape:
+                    for sg_shape in list(set(sgs_from_shape)): # Unique SGs
+                        if cmds.attributeQuery('surfaceShader', node=sg_shape, exists=True):
+                            mat_conns = cmds.listConnections(f"{sg_shape}.surfaceShader", source=True, destination=False, plugs=False)
+                            if mat_conns:
+                                for mat_node in mat_conns:
+                                    if cmds.ls(mat_node, materials=True) and mat_node not in assigned_materials:
+                                        assigned_materials.append(mat_node)
     
-    # Method 1: Check using listSets and listConnections command
-    assigned_materials = []
-    shading_groups = cmds.listSets(type=1, object=mesh_transform) or []
-    
-    for sg in shading_groups:
-        mat = cmds.listConnections(sg + ".surfaceShader", source=True, destination=False)
-        if mat:
-            assigned_materials.extend(mat)
-    
-    # Method 2: Check using instObjGroups connection
-    if not assigned_materials:
-        try:
-            shape_nodes = cmds.listRelatives(mesh_transform, shapes=True, fullPath=True) or []
-            for shape in shape_nodes:
-                # Check if instObjGroups[0] exists and is connected to a shading group
-                inst_conn = cmds.listConnections(shape + ".instObjGroups[0]", type="shadingEngine")
-                if inst_conn:
-                    for sg in inst_conn:
-                        mat = cmds.listConnections(sg + ".surfaceShader", source=True, destination=False)
-                        if mat:
-                            assigned_materials.extend(mat)
-        except Exception as e:
-            print(f"Error checking instObjGroups: {e}")
-    
-    # Method 3: Check direct connections to shading engines
-    if not assigned_materials:
-        shading_engines = cmds.listConnections(mesh_transform, type="shadingEngine") or []
-        for sg in shading_engines:
-            mat = cmds.listConnections(f"{sg}.surfaceShader", source=True, destination=False) or []
-            if mat:
-                assigned_materials.extend(mat)
-    
-    # If we found assigned materials, use them
+    # If we found assigned materials, use the first one.
     if assigned_materials:
-        print(f"Found existing materials on mesh '{mesh_transform}': {assigned_materials}")
-        material = assigned_materials[0]  # Use the first found material
+        print(f"Found existing material(s) on mesh '{mesh_transform}': {assigned_materials}")
+        material = assigned_materials[0]
     else:
-        # Final attempt - try to create a list of all materials in the scene and choose the first one
-        # This is a fallback in case the mesh has a material but our detection methods fail
-        print(f"No existing materials found on mesh '{mesh_transform}'. Falling back to default material.")
+        # Fallback: No existing materials found directly on the mesh.
+        print(f"No existing materials found on mesh '{mesh_transform}'. Attempting to use or create a default material.")
         
-        # Get initial shading engine (usually initialShadingGroup contains lambert1)
-        initial_sg = cmds.ls("initialShadingGroup", exactType="shadingEngine")
-        if initial_sg:
-            default_materials = cmds.listConnections(initial_sg[0] + ".surfaceShader", source=True, destination=False)
-            if default_materials:
-                material = default_materials[0]
-                print(f"Using scene's default material: {material}")
+        lambert1_as_fallback = None
+        initial_sg_list = cmds.ls("initialShadingGroup", type="shadingEngine")
+        if initial_sg_list:
+            initial_sg = initial_sg_list[0]
+            # Check if mesh is a member of initialShadingGroup
+            members = cmds.sets(initial_sg, query=True) or []
+            is_member = False
+            if mesh_transform in members:
+                is_member = True
             else:
-                # Create a basic default material as last resort
-                material_name = f"{name_prefix}_material"
-                material = cmds.shadingNode('lambert', asShader=True, name=material_name)
-                shading_group = cmds.sets(renderable=True, noSurfaceShader=True, empty=True, name=f"{material}_SG")
-                cmds.connectAttr(f"{material}.outColor", f"{shading_group}.surfaceShader", force=True)
-                cmds.sets(mesh_transform, edit=True, forceElement=shading_group)
-                print(f"Created basic material '{material}' as last resort")
-        else:
-            # Create a basic default material if initialShadingGroup not found
-            material_name = f"{name_prefix}_material"
-            material = cmds.shadingNode('lambert', asShader=True, name=material_name)
-            shading_group = cmds.sets(renderable=True, noSurfaceShader=True, empty=True, name=f"{material}_SG")
-            cmds.connectAttr(f"{material}.outColor", f"{shading_group}.surfaceShader", force=True)
-            cmds.sets(mesh_transform, edit=True, forceElement=shading_group)
-            print(f"Created basic material '{material}' as last resort")
+                shapes = cmds.listRelatives(mesh_transform, shapes=True, noIntermediate=True, fullPath=True) or []
+                for shape_node in shapes: # Renamed variable to avoid conflict
+                    if shape_node in members:
+                        is_member = True
+                        break
+            
+            mat_conns_initial_sg = cmds.listConnections(f"{initial_sg}.surfaceShader", source=True, destination=False)
+            if mat_conns_initial_sg and cmds.ls(mat_conns_initial_sg[0], materials=True):
+                lambert1_as_fallback = mat_conns_initial_sg[0]
+
+            if is_member and lambert1_as_fallback:
+                material = lambert1_as_fallback
+                print(f"Mesh '{mesh_transform}' is part of initialShadingGroup. Using its material: '{material}'.")
+        
+        if not material: # If not found via initialShadingGroup membership or other issues
+            print(f"Creating a new Lambert material and assigning it to '{mesh_transform}'.")
+            mesh_base_name = mesh_transform.split('|')[-1].split(':')[-1] # Clean name for new nodes
+            new_material_node = None
+            new_sg_node = None
+            try:
+                new_material_node = cmds.shadingNode('lambert', asShader=True, name=f"{mesh_base_name}_autoMat#")
+                new_sg_node = cmds.sets(renderable=True, noSurfaceShader=True, empty=True, name=f"{new_material_node}SG#")
+                
+                cmds.connectAttr(f"{new_material_node}.outColor", f"{new_sg_node}.surfaceShader", force=True)
+                cmds.sets(mesh_transform, edit=True, forceElement=new_sg_node)
+                material = new_material_node
+                print(f"Successfully created and assigned material '{material}' with SG '{new_sg_node}' to '{mesh_transform}'.")
+            except RuntimeError as e:
+                print(f"Error creating/assigning new material for '{mesh_transform}': {e}")
+                if new_sg_node and cmds.objExists(new_sg_node): cmds.delete(new_sg_node)
+                if new_material_node and cmds.objExists(new_material_node): cmds.delete(new_material_node)
+                material = None
     
     # Ensure we have a material to work with
     if not material:
-        cmds.warning(f"Failed to find or create a material for mesh '{mesh_transform}'.")
-        return None, None, None, None, None, None
+        cmds.warning(f"Failed to find, create, or assign a suitable material for mesh '{mesh_transform}'. Cannot connect texture.")
+        return None, None, None, None, None, None # Ensure all return values are provided
     
     print(f"Using material '{material}' for texture connection")
     
@@ -235,6 +243,10 @@ def connect_texture_to_mesh(mesh_transform, image_file_path, name_prefix="textur
     
     # Check if anything is connected to the color attribute
     material_color_connections = cmds.listConnections(material_color_attr, source=True, destination=False, plugs=True)
+    
+    # Initialize variables before they are used
+    existing_connection_to_layer = False
+    layered_texture_node = None
     
     # Check if what's connected is a layeredTexture (from previous runs of this tool)
     if material_color_connections:
@@ -435,121 +447,103 @@ def organize_scene_hierarchy(mesh_transform, follicle_transform, place3d_node, n
         follicle_transform (str): The follicle transform node
         place3d_node (str): The place3dTexture node
         name_prefix (str): User-provided prefix for naming
+    Returns:
+        str: The (potentially updated) full path of the mesh transform.
     """
-    if not follicle_transform or not place3d_node: # mesh_transform can be optional if not found
-        print("Warning: Follicle or place3d_node not provided to organize_scene_hierarchy. Skipping.")
-        return
-    
+    if not follicle_transform or not place3d_node:
+        cmds.warning("Missing follicle or place3dTexture node for scene organization.")
+        # Return original mesh_transform as we can't be sure of its state if other critical nodes are missing
+        return cmds.ls(mesh_transform, long=True)[0] if cmds.objExists(mesh_transform) else mesh_transform
+
+    # This will be the path of the mesh after this function.
+    final_mesh_path = mesh_transform # Initialize with the input path
+
     # 1. GEO group for mesh
     geo_group_name = "GEO"
     geo_group_long_name = ""
     if not cmds.objExists(geo_group_name):
-        geo_group_name = cmds.group(empty=True, name=geo_group_name)
-        print(f"Created GEO group: {geo_group_name}")
-    geo_group_long_name = cmds.ls(geo_group_name, long=True)[0]
-    
-    # Check and parent mesh_transform
-    if cmds.objExists(mesh_transform):
-        current_mesh_parent_list = cmds.listRelatives(mesh_transform, parent=True, fullPath=True)
-        is_mesh_in_geo = False
-        if current_mesh_parent_list and current_mesh_parent_list[0] == geo_group_long_name:
-            is_mesh_in_geo = True
-        
-        if not is_mesh_in_geo:
-            try:
-                cmds.parent(mesh_transform, geo_group_long_name)
-                print(f"Moved {mesh_transform} under {geo_group_name}")
-            except Exception as e:
-                print(f"Could not move {mesh_transform} under {geo_group_name}: {e}")
-        # else:
-            # print(f"Mesh {mesh_transform} is already under {geo_group_name}.") # Optional: uncomment for debugging
+        geo_group_long_name = cmds.group(empty=True, name=geo_group_name, world=True)
     else:
-        print(f"Warning: Mesh transform '{mesh_transform}' not found. Skipping GEO group organization for mesh.")
+        geo_group_long_name = cmds.ls(geo_group_name, long=True)[0]
     
-    # 2. RIG group with prefix_Texture_ctrl_grp for follicle
+    if cmds.objExists(mesh_transform):
+        # Get current full path of the mesh, in case mesh_transform was a short name
+        current_mesh_full_path = cmds.ls(mesh_transform, long=True)[0]
+        
+        parent_list = cmds.listRelatives(current_mesh_full_path, parent=True, fullPath=True)
+        current_parent_full_path = parent_list[0] if parent_list else None
+
+        if current_parent_full_path != geo_group_long_name:
+            # cmds.parent returns a list of new full paths of moved objects
+            moved_objects = cmds.parent(current_mesh_full_path, geo_group_long_name)
+            if moved_objects:
+                final_mesh_path = moved_objects[0]
+            else:
+                cmds.warning(f"Failed to parent '{current_mesh_full_path}' under '{geo_group_long_name}'.")
+                final_mesh_path = current_mesh_full_path
+        else:
+            # Already under the correct GEO group, ensure final_mesh_path is the full path.
+            final_mesh_path = current_mesh_full_path
+    else:
+        cmds.warning(f"Mesh '{mesh_transform}' not found at the start of scene organization.")
+        # final_mesh_path remains the original, potentially invalid, mesh_transform
+    
+    # ... existing code for RIG group ...
     rig_group_name = "RIG"
     rig_group_long_name = ""
     if not cmds.objExists(rig_group_name):
-        rig_group_name = cmds.group(empty=True, name=rig_group_name)
-        print(f"Created RIG group: {rig_group_name}")
-    rig_group_long_name = cmds.ls(rig_group_name, long=True)[0]
+        rig_group_long_name = cmds.group(empty=True, name=rig_group_name, world=True)
+    else:
+        rig_group_long_name = cmds.ls(rig_group_name, long=True)[0]
     
-    # Create prefix_Texture_ctrl_grp under RIG
     texture_ctrl_grp_name = f"{name_prefix}_Texture_ctrl_grp"
     texture_ctrl_grp_long_name = ""
     if not cmds.objExists(texture_ctrl_grp_name):
-        texture_ctrl_grp_name = cmds.group(empty=True, name=texture_ctrl_grp_name, parent=rig_group_long_name)
-        print(f"Created {texture_ctrl_grp_name} under {rig_group_name}")
-    else: # Ensure it's under RIG if it exists
-        current_texture_ctrl_grp_parent_list = cmds.listRelatives(texture_ctrl_grp_name, parent=True, fullPath=True)
-        if not current_texture_ctrl_grp_parent_list or current_texture_ctrl_grp_parent_list[0] != rig_group_long_name:
-            try:
-                cmds.parent(texture_ctrl_grp_name, rig_group_long_name)
-                print(f"Moved existing {texture_ctrl_grp_name} under {rig_group_name}")
-            except Exception as e:
-                print(f"Could not move existing {texture_ctrl_grp_name} under {rig_group_name}: {e}")
-    texture_ctrl_grp_long_name = cmds.ls(texture_ctrl_grp_name, long=True)[0]
-    
-    # Move follicle under texture_ctrl_grp
+        texture_ctrl_grp_long_name = cmds.group(empty=True, name=texture_ctrl_grp_name, parent=rig_group_long_name)
+    else:
+        # Ensure it's parented under RIG if it exists but is not parented correctly
+        existing_grp_full_path = cmds.ls(texture_ctrl_grp_name, long=True)[0]
+        grp_parent_list = cmds.listRelatives(existing_grp_full_path, parent=True, fullPath=True)
+        grp_parent_full_path = grp_parent_list[0] if grp_parent_list else None
+        if grp_parent_full_path != rig_group_long_name:
+            cmds.parent(existing_grp_full_path, rig_group_long_name)
+        texture_ctrl_grp_long_name = cmds.ls(texture_ctrl_grp_name, long=True)[0] # Get full path
+
     if cmds.objExists(follicle_transform):
         current_follicle_parent_list = cmds.listRelatives(follicle_transform, parent=True, fullPath=True)
-        is_follicle_in_ctrl_grp = False
-        if current_follicle_parent_list and current_follicle_parent_list[0] == texture_ctrl_grp_long_name:
-            is_follicle_in_ctrl_grp = True
-
-        if not is_follicle_in_ctrl_grp:
-            try:
-                cmds.parent(follicle_transform, texture_ctrl_grp_long_name)
-                print(f"Moved {follicle_transform} under {texture_ctrl_grp_name}")
-            except Exception as e:
-                print(f"Could not move {follicle_transform} under {texture_ctrl_grp_name}: {e}")
-        # else:
-            # print(f"Follicle {follicle_transform} is already under {texture_ctrl_grp_name}.") # Optional
+        current_follicle_parent_full_path = current_follicle_parent_list[0] if current_follicle_parent_list else None
+        if current_follicle_parent_full_path != texture_ctrl_grp_long_name:
+            cmds.parent(follicle_transform, texture_ctrl_grp_long_name)
     else:
-        print(f"Warning: Follicle transform '{follicle_transform}' not found. Skipping parenting.")
+        cmds.warning(f"Follicle '{follicle_transform}' not found for parenting under '{texture_ctrl_grp_name}'.")
 
-    # Set follicle shape node visibility to off
-    follicle_shapes = cmds.listRelatives(follicle_transform, shapes=True, type="follicle")
+    follicle_shapes = cmds.listRelatives(follicle_transform, shapes=True, type="follicle", fullPath=True)
     if follicle_shapes:
         for shape in follicle_shapes:
-            try:
-                cmds.setAttr(f"{shape}.visibility", 0)
-                print(f"Set visibility of follicle shape '{shape}' to off")
-            except Exception as e:
-                print(f"Could not set visibility of follicle shape '{shape}': {e}")
+            cmds.setAttr(f"{shape}.visibility", 0)
     
-    # 3. UTIL group for place3dTexture
+    # ... existing code for UTIL group ...
     util_group_name = "UTIL"
     util_group_long_name = ""
     if not cmds.objExists(util_group_name):
-        util_group_name = cmds.group(empty=True, name=util_group_name)
-        print(f"Created UTIL group: {util_group_name}")
-    util_group_long_name = cmds.ls(util_group_name, long=True)[0]
-    
-    # Move place3dTexture under UTIL
-    if cmds.objExists(place3d_node):
-        current_place3d_parent_list = cmds.listRelatives(place3d_node, parent=True, fullPath=True)
-        is_place3d_in_util = False
-        if current_place3d_parent_list and current_place3d_parent_list[0] == util_group_long_name:
-            is_place3d_in_util = True
-
-        if not is_place3d_in_util:
-            try:
-                cmds.parent(place3d_node, util_group_long_name)
-                print(f"Moved {place3d_node} under {util_group_name}")
-            except Exception as e:
-                print(f"Could not move {place3d_node} under {util_group_name}: {e}")
-        # else:
-            # print(f"Node {place3d_node} is already under {util_group_name}.") # Optional
+        util_group_long_name = cmds.group(empty=True, name=util_group_name, world=True)
     else:
-        print(f"Warning: place3dTexture node '{place3d_node}' not found. Skipping parenting.")
-    
-    # Set UTIL group visibility to off
+        util_group_long_name = cmds.ls(util_group_name, long=True)[0]
+
+    if cmds.objExists(place3d_node):
+        current_p3d_parent_list = cmds.listRelatives(place3d_node, parent=True, fullPath=True)
+        current_p3d_parent_full_path = current_p3d_parent_list[0] if current_p3d_parent_list else None
+        if current_p3d_parent_full_path != util_group_long_name:
+            cmds.parent(place3d_node, util_group_long_name)
+    else:
+        cmds.warning(f"place3dTexture node '{place3d_node}' not found for parenting under '{util_group_name}'.")
+        
     try:
-        cmds.setAttr(f"{util_group_name}.visibility", 0)
-        print(f"Set visibility of UTIL group to off")
+        cmds.setAttr(f"{util_group_long_name}.visibility", 0)
     except Exception as e:
-        print(f"Could not set visibility of UTIL group: {e}")
+        cmds.warning(f"Could not set UTIL group visibility: {e}")
+        
+    return final_mesh_path
 
 def find_bind_joint_from_follicle(follicle_transform):
     """
@@ -588,44 +582,37 @@ def find_bind_joint_from_follicle(follicle_transform):
 
 def run_step3_logic(mesh_transform, image_file_path=None, name_prefix="textureRigger", follicle_transform=None):
     """
-    Step 3's main logic: Connect texture to mesh material using projection
-    
-    Args:
-        mesh_transform (str): The transform node of the mesh
-        image_file_path (str, optional): Path to image file. If None, user will be prompted to select one.
-        name_prefix (str, optional): Prefix for naming created nodes
-        follicle_transform (str, optional): The transform node of the follicle created in step 2
-        
-    Returns:
-        tuple: (file_node, projection_node, place2d_node, place3d_node, layered_texture_node, material_node) or (None, None, None, None, None, None)
+    Main logic for Step 3: Connects texture and organizes scene.
+    Returns a tuple: 
+    (file_node, projection_node, place2d_node, place3d_node, layered_texture, material_node, updated_mesh_transform)
+    or (None, None, None, None, None, None, original_mesh_transform_if_failed)
     """
-    if not mesh_transform or not cmds.objExists(mesh_transform):
-        cmds.warning("No valid mesh transform provided for texture connection.")
-        return None, None, None, None, None, None
-    
-    # If no image file path provided, prompt user to select one
     if not image_file_path:
-        image_file_path = select_image_file()
-        if not image_file_path:
-            cmds.warning("No image file selected.")
-            return None, None, None, None, None, None
-    
-    # Find the bind joint from the follicle
-    bind_joint = None
-    if follicle_transform:
-        bind_joint = find_bind_joint_from_follicle(follicle_transform)
-        if bind_joint:
-            print(f"Found bind joint '{bind_joint}' to constrain place3dTexture")
-        else:
-            print("No bind joint found. Place3dTexture will not be constrained.")
-    
-    # Connect the texture to the mesh's material
-    result = connect_texture_to_mesh(mesh_transform, image_file_path, name_prefix, bind_joint)
-    
-    # If successful, organize the scene hierarchy
-    if all(result):
-        file_node, projection_node, place2d_node, place3d_node, layered_texture_node, material = result
-        organize_scene_hierarchy(mesh_transform, follicle_transform, place3d_node, name_prefix)
-        return file_node, projection_node, place2d_node, place3d_node, layered_texture_node, material
-    
-    return None, None, None, None, None, None
+        cmds.warning("No image file path provided for texture connection.")
+        return None, None, None, None, None, None, mesh_transform
+
+    bind_joint = find_bind_joint_from_follicle(follicle_transform) if follicle_transform else None
+
+    file_node, projection_node, place2d_node, place3d_node, layered_texture, material = connect_texture_to_mesh(
+        mesh_transform, 
+        image_file_path, 
+        name_prefix,
+        bind_joint=bind_joint
+    )
+
+    updated_mesh_path_after_organization = mesh_transform 
+
+    if not file_node: 
+        cmds.warning(f"Texture connection failed for prefix '{name_prefix}'. Skipping organization.")
+        return None, None, None, None, None, None, mesh_transform
+
+    if follicle_transform and place3d_node: 
+        updated_mesh_path_after_organization = organize_scene_hierarchy(mesh_transform, follicle_transform, place3d_node, name_prefix)
+    else:
+        cmds.warning(f"Skipping scene organization for prefix '{name_prefix}' due to missing follicle or place3dTexture node.")
+        if not follicle_transform:
+            cmds.warning(f"Follicle transform was missing for prefix '{name_prefix}'.")
+        if not place3d_node:
+            cmds.warning(f"Place3dTexture node was missing for prefix '{name_prefix}'. This might indicate a failure in connect_texture_to_mesh.")
+            
+    return file_node, projection_node, place2d_node, place3d_node, layered_texture, material, updated_mesh_path_after_organization
