@@ -1,12 +1,12 @@
 import maya.cmds as cmds
 import importlib
 
-# Logic dosyalarını import et
+# Import logic files
 import step1_logic
 import step2_logic
 import step3_logic
 
-# Geliştirme sırasında modülleri yeniden yüklemek için (opsiyonel)
+# For reloading modules during development (optional)
 importlib.reload(step1_logic)
 importlib.reload(step2_logic)
 importlib.reload(step3_logic)
@@ -21,9 +21,9 @@ class TextureRiggerUI: # Changed from UVToolUI
         self.created_locator = None
         self.created_follicle = None
         self.parent_group_in_follicle = None
-        self.name_prefix = "Prefix" # Varsayılan isim öneki - Changed from "uv"
+        self.name_prefix = "Prefix" # Default name prefix - Changed from "uv"
         
-        # Step 3 için eklendi - Updated with all texture-related nodes including layeredTexture
+        # Added for Step 3 - Updated with all texture-related nodes including layeredTexture
         self.selected_texture_file = None
         self.created_file_node = None
         self.created_projection_node = None
@@ -32,7 +32,7 @@ class TextureRiggerUI: # Changed from UVToolUI
         self.created_layered_texture = None
         self.connected_material = None
 
-        # UI elemanları için değişkenler
+        # Variables for UI elements
         self.step1_frame = None
         self.select_mesh_button = None
         self.step1_status_label = None
@@ -41,7 +41,7 @@ class TextureRiggerUI: # Changed from UVToolUI
         self.create_follicle_button = None
         self.step2_status_label = None
         
-        # Step 3 UI elemanları için değişkenler
+        # Variables for Step 3 UI elements
         self.step3_frame = None
         self.select_texture_button = None
         self.connect_texture_button = None
@@ -49,17 +49,17 @@ class TextureRiggerUI: # Changed from UVToolUI
         self.step3_status_label = None
 
         self.delete_tool_nodes_button = None
-        self.name_field = None # İsim alanı için değişken
+        self.name_field = None # Variable for name field
 
     def on_window_close(self, *args):
         """
-        UI penceresi kullanıcı tarafından kapatıldığında çağrılır.
-        Aracın durumunu sıfırlamak için temizlik yapar.
+        Called when the UI window is closed by the user.
+        Cleans up to reset the tool's state.
         """
-        print(f"Pencere '{self.window_name}' kullanıcı tarafından kapatıldı. Araç durumu temizleniyor.")
+        print(f"Window '{self.window_name}' closed by the user. Cleaning up tool state.")
         self.reset_tool_state()
-        # Burada varsa, araca özel diğer önbellek temizleme işlemleri yapılabilir.
-        # Örneğin, oluşturulmuş scriptJob'lar varsa onlar sonlandırılabilir.
+        # If there are any, tool-specific cache cleaning operations can be done here.
+        # For example, if there are any created scriptJobs, they can be terminated.
 
     def create_ui(self):
         if cmds.window(self.window_name, exists=True):
@@ -70,7 +70,7 @@ class TextureRiggerUI: # Changed from UVToolUI
             title=self.ui_title, 
             widthHeight=(400, 400), 
             sizeable=True,
-            closeCommand=self.on_window_close  # Pencere kapatma komutunu ekle
+            closeCommand=self.on_window_close  # Add window close command
         )
         
         main_layout = cmds.columnLayout(adjustableColumn=True, rowSpacing=10, parent=self.window)
@@ -93,7 +93,7 @@ class TextureRiggerUI: # Changed from UVToolUI
         cmds.setParent("..") # step1_frame
 
         # --- Step 2 --- #
-        self.step2_frame = cmds.frameLayout("step2_frame", label="STEP 2: Create Follicle and  Control Curve", collapsable=False, collapse=False, parent=main_layout, marginWidth=10, marginHeight=5, enable=False) # Başlangıçta disable
+        self.step2_frame = cmds.frameLayout("step2_frame", label="STEP 2: Create Follicle and  Control Curve", collapsable=False, collapse=False, parent=main_layout, marginWidth=10, marginHeight=5, enable=False) # Initially disabled
         step2_col_layout = cmds.columnLayout(adjustableColumn=True, parent=self.step2_frame, rowSpacing=5)
         cmds.text(label="Move the created locator to the desired position on the mesh.", align="left", parent=step2_col_layout)
         self.create_follicle_button = cmds.button(label="Create Control Curve", command=self.on_create_follicle_click, parent=step2_col_layout, height=30)
@@ -102,7 +102,7 @@ class TextureRiggerUI: # Changed from UVToolUI
         cmds.setParent("..") # step2_frame
 
         # --- Step 3 --- #
-        self.step3_frame = cmds.frameLayout("step3_frame", label="STEP 3: Select Texture & Connect to Material", collapsable=False, collapse=False, parent=main_layout, marginWidth=10, marginHeight=5, enable=False) # Başlangıçta disable
+        self.step3_frame = cmds.frameLayout("step3_frame", label="STEP 3: Select Texture & Connect to Material", collapsable=False, collapse=False, parent=main_layout, marginWidth=10, marginHeight=5, enable=False) # Initially disabled
         step3_col_layout = cmds.columnLayout(adjustableColumn=True, parent=self.step3_frame, rowSpacing=5)
         self.select_texture_button = cmds.button(label="Select Texture File", command=self.on_select_texture_click, parent=step3_col_layout, height=30)
         self.texture_path_label = cmds.text(label="Selected Texture: None", align="left", parent=step3_col_layout)
@@ -122,13 +122,13 @@ class TextureRiggerUI: # Changed from UVToolUI
 
     def on_name_changed(self, new_name):
         """
-        İsim alanı değiştirildiğinde çağrılır.
+        Called when the name field is changed.
         """
         if not new_name or new_name.isspace():
-            self.name_prefix = "textureRigger" # Eğer boş ise varsayılan değeri kullan - Changed from "uv"
+            self.name_prefix = "textureRigger" # If empty, use default value - Changed from "uv"
             cmds.textField(self.name_field, edit=True, text=self.name_prefix)
         else:
-            # Özel karakterleri ve boşlukları temizle
+            # Clean special characters and spaces
             cleaned_name = ''.join(c for c in new_name if c.isalnum() or c == '_')
             if cleaned_name != new_name:
                 cmds.textField(self.name_field, edit=True, text=cleaned_name)
@@ -159,7 +159,7 @@ class TextureRiggerUI: # Changed from UVToolUI
         cmds.text(self.step3_status_label, edit=True, label=f"Status: {message}", backgroundColor=color)
 
     def on_select_mesh_click(self, *args):
-        self.reset_step2_and_beyond() # Önceki steplerden kalanları temizle
+        self.reset_step2_and_beyond() # Clean up leftovers from previous steps
         
         mesh_transform, mesh_shape, locator = step1_logic.run_step1_logic(self.name_prefix)
         if mesh_transform and mesh_shape and locator:
@@ -167,8 +167,8 @@ class TextureRiggerUI: # Changed from UVToolUI
             self.selected_mesh_shape = mesh_shape
             self.created_locator = locator
             self.update_step1_status(f"Locator '{locator}' created for mesh '{mesh_transform}'. Position the locator.", success=True)
-            cmds.frameLayout(self.step2_frame, edit=True, enable=True) # Step 2'yi aktif et
-            cmds.button(self.select_mesh_button, edit=True, enable=False) # Step 1 butonunu pasif et
+            cmds.frameLayout(self.step2_frame, edit=True, enable=True) # Activate Step 2
+            cmds.button(self.select_mesh_button, edit=True, enable=False) # Disable Step 1 button
             self.update_step2_status("Move the locator and click 'Create Follicle'.")
         else:
             self.selected_mesh_transform = None
@@ -187,41 +187,41 @@ class TextureRiggerUI: # Changed from UVToolUI
             self.reset_tool_state()
             return
 
-        # Locator adını sakla, çünkü step2_logic içinde silinebilir veya işlem sonrası silinecek
+        # Store the locator name, as it may be deleted in step2_logic or will be deleted after processing
         locator_to_delete_after_success = self.created_locator 
 
-        # Step 2 logic'i çalıştır - isim önekini de gönder
+        # Run Step 2 logic - also send the name prefix
         follicle_transform, main_control = step2_logic.run_step2_logic(self.selected_mesh_shape, locator_to_delete_after_success, self.name_prefix)
         
         if follicle_transform and main_control:
             self.created_follicle = follicle_transform
-            self.parent_group_in_follicle = main_control # Ana kontrol objesi 
+            self.parent_group_in_follicle = main_control # Main control object 
 
-            self.update_step2_status(f"Follicle '{follicle_transform}' ve kontrol '{main_control}' oluşturuldu ve ayarlandı.", success=True)
-            cmds.button(self.create_follicle_button, edit=True, enable=False) # Step 2 butonunu pasif et
+            self.update_step2_status(f"Follicle '{follicle_transform}' and control '{main_control}' created and set up.", success=True)
+            cmds.button(self.create_follicle_button, edit=True, enable=False) # Disable Step 2 button
             
-            # Step 1'de oluşturulan locator'ı sil
+            # Delete the locator created in Step 1
             if locator_to_delete_after_success and cmds.objExists(locator_to_delete_after_success):
                 try:
                     cmds.delete(locator_to_delete_after_success)
                     print(f"Initial locator '{locator_to_delete_after_success}' deleted.")
                     if self.created_locator == locator_to_delete_after_success:
-                         self.created_locator = None # UI state'ini güncelle
+                         self.created_locator = None # Update UI state
                 except Exception as e:
                     print(f"Could not delete initial locator '{locator_to_delete_after_success}': {e}")
             
-            # Eğer self.created_locator zaten None ise veya silinenle aynıysa None yap
+            # If self.created_locator is already None or is the same as the deleted one, make it None
             if self.created_locator == locator_to_delete_after_success:
                 self.created_locator = None
 
-            # Step 3'ü aktif et
+            # Activate Step 3
             cmds.frameLayout(self.step3_frame, edit=True, enable=True)
             self.update_step3_status("Select a texture file and connect it to the material.")
         else:
             self.update_step2_status("Failed to create follicle. Check script editor for details.", success=False)
 
     def on_select_texture_click(self, *args):
-        # Kullanıcıdan dosya seçmesini iste
+        # Ask the user to select a file
         file_path = cmds.fileDialog2(fileMode=1, caption="Select Texture File")
         if file_path:
             self.selected_texture_file = file_path[0]
@@ -240,8 +240,8 @@ class TextureRiggerUI: # Changed from UVToolUI
             self.update_step3_status("No mesh selected from Step 1. Please restart the tool.", success=False)
             return
 
-        # Step 3 logic'i çalıştır - isim önekini ve follicle transform'u gönder
-        # Alpha texture ile ilgili kısım kaldırıldı. Sadece run_step3_logic çağrılacak.
+        # Run Step 3 logic - send name prefix and follicle transform
+        # The part related to alpha texture has been removed. Only run_step3_logic will be called.
         file_node, projection_node, place2d_node, place3d_node, layered_texture_node, material = step3_logic.run_step3_logic(
             self.selected_mesh_transform, 
             self.selected_texture_file, 
@@ -257,7 +257,7 @@ class TextureRiggerUI: # Changed from UVToolUI
             self.created_layered_texture = layered_texture_node
             self.connected_material = material
 
-            # Organize scene hierarchy - Bu kısım değişmeden kalabilir, place3d_node hala organize edilecek.
+            # Organize scene hierarchy - This part can remain unchanged, place3d_node will still be organized.
             if self.created_place3d_node and self.created_follicle:
                 step3_logic.organize_scene_hierarchy(self.selected_mesh_transform, self.created_follicle, self.created_place3d_node, self.name_prefix)
             
@@ -277,10 +277,10 @@ class TextureRiggerUI: # Changed from UVToolUI
         self.update_step3_status(message, success=True)
         
         # Reset buttons to allow the user to repeat the process
-        cmds.button(self.select_mesh_button, edit=True, enable=True) # Step 1 butonunu aktif et
-        cmds.button(self.create_follicle_button, edit=True, enable=True) # Step 2 butonunu aktif et
-        cmds.button(self.select_texture_button, edit=True, enable=True) # Texture seçme butonunu aktif et
-        cmds.button(self.connect_texture_button, edit=True, enable=True) # Connect butonunu aktif et
+        cmds.button(self.select_mesh_button, edit=True, enable=True) # Enable Step 1 button
+        cmds.button(self.create_follicle_button, edit=True, enable=True) # Enable Step 2 button
+        cmds.button(self.select_texture_button, edit=True, enable=True) # Enable texture selection button
+        cmds.button(self.connect_texture_button, edit=True, enable=True) # Enable connect button
         
         # Update all step statuses to indicate user can proceed again
         self.update_step1_status("Ready to select another mesh or continue with current one.", success=True)
@@ -301,7 +301,7 @@ class TextureRiggerUI: # Changed from UVToolUI
             if self.created_follicle and cmds.objExists(self.created_follicle):
                 nodes_to_delete.append(self.created_follicle)
             
-        # Step 3 temizliği için tüm texture node'larını ekle
+        # Add all texture nodes for Step 3 cleanup
         if self.created_file_node and cmds.objExists(self.created_file_node):
             nodes_to_delete.append(self.created_file_node)
         if self.created_projection_node and cmds.objExists(self.created_projection_node):
@@ -340,14 +340,14 @@ class TextureRiggerUI: # Changed from UVToolUI
         self.reset_tool_state()
 
     def reset_step2_and_beyond(self):
-        """Step 2 ve sonrasındaki UI ve state'i sıfırlar."""
+        """Resets the UI and state for Step 2 and beyond."""
         cmds.frameLayout(self.step2_frame, edit=True, enable=False)
         cmds.button(self.create_follicle_button, edit=True, enable=True)
         self.update_step2_status("Waiting for locator positioning and follicle creation...")
         self.created_follicle = None
         self.parent_group_in_follicle = None
 
-        # Step 3'ü sıfırla
+        # Reset Step 3
         cmds.frameLayout(self.step3_frame, edit=True, enable=False)
         cmds.button(self.select_texture_button, edit=True, enable=True)
         cmds.button(self.connect_texture_button, edit=True, enable=False)
@@ -358,13 +358,13 @@ class TextureRiggerUI: # Changed from UVToolUI
         self.connected_material = None
 
     def reset_tool_state(self):
-        """Tüm arayüzü ve iç değişkenleri başlangıç durumuna sıfırlar."""
+        """Resets the entire UI and internal variables to the initial state."""
         self.selected_mesh_transform = None
         self.selected_mesh_shape = None
         if self.created_locator and cmds.objExists(self.created_locator):
-            # Kullanıcı manuel silmiş olabilir, kontrol et
-            pass # Silme butonuna bırakalım
-        # self.created_locator = None # Silme butonuyla yönetiliyor
+            # User may have deleted it manually, check
+            pass # Let's leave it to the delete button
+        # self.created_locator = None # Managed by the delete button
         
         self.reset_step2_and_beyond()
 
@@ -372,13 +372,13 @@ class TextureRiggerUI: # Changed from UVToolUI
         self.update_step1_status("Waiting for mesh selection...")
         print("Tool state has been reset.")
 
-# UI'ı başlatmak için:
+# To start the UI:
 def show_ui():
     tool_ui = TextureRiggerUI() # Changed from UVToolUI
     tool_ui.create_ui()
-    return tool_ui # Eğer UI objesine dışarıdan erişmek isterseniz
+    return tool_ui # If you want to access the UI object from outside
 
 if __name__ == "__main__":
-    # Bu script doğrudan çalıştırıldığında UI'ı açar.
+    # When this script is run directly, it opens the UI.
     ui_instance = show_ui()
 

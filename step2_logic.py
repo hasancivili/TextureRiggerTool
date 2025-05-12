@@ -3,38 +3,38 @@ import maya.OpenMaya as om
 
 def get_uv_at_point(mesh_shape, world_point_mvector):
     """
-    Verilen bir dünya uzayı noktasına en yakın UV koordinatını mesh üzerinde bulur.
+    Finds the closest UV coordinate on the mesh for a given world space point.
 
     Args:
-        mesh_shape (str): Mesh shape düğümünün adı.
-        world_point_mvector (om.MVector): Dünya uzayındaki nokta.
+        mesh_shape (str): Name of the mesh shape node.
+        world_point_mvector (om.MVector): Point in world space.
 
     Returns:
-        tuple (float, float) or None: (u, v) UV koordinatları veya bulunamazsa None.
+        tuple (float, float) or None: (u, v) UV coordinates or None if not found.
     """
     selection_list = om.MSelectionList()
     try:
         selection_list.add(mesh_shape)
     except RuntimeError:
-        cmds.warning(f"Mesh shape '{mesh_shape}' seçilemedi.")
+        cmds.warning(f"Mesh shape '{mesh_shape}' could not be selected.")
         return None
 
     dag_path = om.MDagPath()
     try:
         selection_list.getDagPath(0, dag_path)
     except RuntimeError:
-        cmds.warning(f"Mesh shape '{mesh_shape}' için DAG path alınamadı.")
+        cmds.warning(f"Could not get DAG path for mesh shape '{mesh_shape}'.")
         return None
 
-    # MPoint olarak dünya noktasını oluştur - Bu satır gereksiz çünkü world_point_mvector zaten kullanılıyor.
+    # Create world point as MPoint - This line is unnecessary because world_point_mvector is already being used.
     # world_m_point = om.MPoint(world_point_mvector.x, world_point_mvector.y, world_point_mvector.z)
 
-    cpos_node = None # Hata durumunda silinebilmesi için tanımla
+    cpos_node = None # Define here so it can be deleted in case of error
     try:
-        # En güvenilir yöntemlerden biri, `closestPointOnMesh` node'unu kullanmaktır.
+        # One of the most reliable methods is to use the `closestPointOnMesh` node.
         cpos_node = cmds.createNode("closestPointOnMesh")
         
-        # Mesh bağlantısı
+        # Mesh connection
         mesh_attr_to_connect = ""
         if cmds.attributeQuery("worldMesh", node=mesh_shape, exists=True) and \
            cmds.attributeQuery("worldMesh[0]", node=mesh_shape, exists=True):
@@ -42,7 +42,7 @@ def get_uv_at_point(mesh_shape, world_point_mvector):
         elif cmds.attributeQuery("outMesh", node=mesh_shape, exists=True):
             mesh_attr_to_connect = f"{mesh_shape}.outMesh"
         else:
-            cmds.warning(f"Mesh shape '{mesh_shape}' üzerinde uygun bir mesh output attribute bulunamadı (worldMesh[0] veya outMesh).")
+            cmds.warning(f"Could not find appropriate mesh output attribute on mesh shape '{mesh_shape}' (worldMesh[0] or outMesh).")
             if cpos_node and cmds.objExists(cpos_node): cmds.delete(cpos_node)
             return None
             
@@ -58,11 +58,11 @@ def get_uv_at_point(mesh_shape, world_point_mvector):
         if u_val is not None and v_val is not None:
             return float(u_val), float(v_val)
         else:
-            cmds.warning(f"closestPointOnMesh node'u ile UV koordinatları alınamadı.")
+            cmds.warning(f"Could not get UV coordinates using closestPointOnMesh node.")
             return None
 
     except Exception as e:
-        cmds.warning(f"Dünya noktasından UV alınırken hata: {e}")
+        cmds.warning(f"Error getting UV from world point: {e}")
         return None
     finally:
         if cpos_node and cmds.objExists(cpos_node):
@@ -70,83 +70,83 @@ def get_uv_at_point(mesh_shape, world_point_mvector):
 
 def create_follicle_at_uv(mesh_shape_name, u_coord, v_coord, name_prefix="textureRigger"):
     """
-    Belirtilen mesh üzerinde, verilen UV koordinatlarında bir follicle ve içinde bir null group oluşturur.
+    Creates a follicle and a null group inside it on the specified mesh at the given UV coordinates.
     
     Args:
-        mesh_shape_name (str): Mesh shape düğümünün adı.
-        u_coord (float): U koordinatı.
-        v_coord (float): V koordinatı.
-        name_prefix (str, optional): Follicle için isim öneki. Defaults to "textureRigger".
+        mesh_shape_name (str): Name of the mesh shape node.
+        u_coord (float): U coordinate.
+        v_coord (float): V coordinate.
+        name_prefix (str, optional): Name prefix for the follicle. Defaults to "textureRigger".
     
     Returns:
-        tuple: (follicle_transform_name, parent_group_name) veya (None, None)
+        tuple: (follicle_transform_name, parent_group_name) or (None, None)
     """
     if not cmds.objExists(mesh_shape_name):
-        cmds.warning(f"Follicle oluşturmak için mesh shape '{mesh_shape_name}' bulunamadı.")
+        cmds.warning(f"Mesh shape '{mesh_shape_name}' not found for creating follicle.")
         return None, None
 
-    # İsim önekini temizle ve kullan
+    # Clean and use the name prefix
     clean_prefix = name_prefix if name_prefix else "textureRigger"
     follicle_name = f"{clean_prefix}_follicle#"
 
-    # Follicle shape ve transform oluştur
+    # Create follicle shape and transform
     follicle_transform_name = cmds.createNode("transform", name=follicle_name)
     follicle_shape_name = cmds.createNode("follicle", name=f"{follicle_transform_name}Shape", parent=follicle_transform_name)
 
-    # Mesh bağlantıları
-    # Mesh'in worldMesh veya outMesh attribute'unu follicle'ın inputMesh'ine bağla
+    # Mesh connections
+    # Connect mesh's worldMesh or outMesh attribute to follicle's inputMesh
     if cmds.attributeQuery("worldMesh", node=mesh_shape_name, exists=True) and \
        cmds.attributeQuery("worldMesh[0]", node=mesh_shape_name, exists=True):
         cmds.connectAttr(f"{mesh_shape_name}.worldMesh[0]", f"{follicle_shape_name}.inputMesh")
     elif cmds.attributeQuery("outMesh", node=mesh_shape_name, exists=True):
         cmds.connectAttr(f"{mesh_shape_name}.outMesh", f"{follicle_shape_name}.inputMesh")
     else:
-        cmds.warning(f"Mesh '{mesh_shape_name}' üzerinde follicle için uygun output attribute bulunamadı.")
+        cmds.warning(f"Could not find appropriate output attribute on mesh '{mesh_shape_name}' for follicle.")
         cmds.delete(follicle_transform_name)
         return None, None
 
-    # Mesh'in worldMatrix'ini follicle'ın inputWorldMatrix'ine bağla
+    # Connect mesh's worldMatrix to follicle's inputWorldMatrix
     mesh_transform_name = cmds.listRelatives(mesh_shape_name, parent=True, fullPath=True)[0]
     cmds.connectAttr(f"{mesh_transform_name}.worldMatrix[0]", f"{follicle_shape_name}.inputWorldMatrix")
 
-    # Follicle'ın outTranslate ve outRotate'ını transform node'una bağla
+    # Connect follicle's outTranslate and outRotate to transform node
     cmds.connectAttr(f"{follicle_shape_name}.outTranslate", f"{follicle_transform_name}.translate")
     cmds.connectAttr(f"{follicle_shape_name}.outRotate", f"{follicle_transform_name}.rotate")
 
-    # UV değerlerini ayarla
+    # Set UV values
     cmds.setAttr(f"{follicle_shape_name}.parameterU", u_coord)
     cmds.setAttr(f"{follicle_shape_name}.parameterV", v_coord)
 
-    # Follicle içinde "parent_grp" adında bir boş grup (null group) oluştur
+    # Create an empty "parent_grp" group (null group) inside the follicle
     parent_grp_name = cmds.group(empty=True, name=f"{clean_prefix}_parent_grp#")
     cmds.parent(parent_grp_name, follicle_transform_name)
-    # Grubu sıfırla (follicle'a göre)
+    # Reset the group (relative to follicle)
     cmds.setAttr(f"{parent_grp_name}.translate", 0, 0, 0)
     cmds.setAttr(f"{parent_grp_name}.rotate", 0, 0, 0)
     cmds.setAttr(f"{parent_grp_name}.scale", 1, 1, 1)
 
-    print(f"Follicle '{follicle_transform_name}' ve parent group '{parent_grp_name}' UV ({u_coord}, {v_coord}) üzerinde oluşturuldu.")
+    print(f"Follicle '{follicle_transform_name}' and parent group '{parent_grp_name}' created at UV ({u_coord}, {v_coord}).")
     return follicle_transform_name, parent_grp_name
 
 def setup_follicle_connections(follicle_transform, follicle_shape, node_prefix):
     """
-    Follicle için gelişmiş bağlantılar ve kontrolör oluşturur.
+    Creates advanced connections and controller for the follicle.
     
     Args:
-        follicle_transform (str): Follicle transform düğümünün adı.
-        follicle_shape (str): Follicle shape düğümünün adı.
-        node_prefix (str): İçeride oluşturulacak düğümler için kullanılacak isim öneki.
+        follicle_transform (str): Name of the follicle transform node.
+        follicle_shape (str): Name of the follicle shape node.
+        node_prefix (str): Name prefix to be used for nodes created inside.
     
     Returns:
-        tuple: (slide_ctrl_name, bind_joint_name) başarılı olursa, aksi halde (None, None)
+        tuple: (slide_ctrl_name, bind_joint_name) if successful, otherwise (None, None)
     """
     try:
-        # Node isimlerini düzenli hale getir
-        # base_name = follicle_transform.split('|')[-1].split(':')[-1]  # Namespace'siz ve tam yolsuz isim
+        # Organize node names
+        # base_name = follicle_transform.split('|')[-1].split(':')[-1]  # Name without namespace and full path
         # if not base_name: 
         #     base_name = "follicleSetup"
-        #     print(f"Geçerli bir isim bulunamadı, varsayılan isim kullanılıyor: {base_name}")
-        base_name = node_prefix # Gelen öneki doğrudan kullan
+        #     print(f"Valid name not found, using default name: {base_name}")
+        base_name = node_prefix # Use the incoming prefix directly
 
         compose_matrix_node = cmds.createNode("composeMatrix", name=f"{base_name}_compMat")
         mult_matrix_node = cmds.createNode("multMatrix", name=f"{base_name}_multMat")
@@ -158,14 +158,14 @@ def setup_follicle_connections(follicle_transform, follicle_shape, node_prefix):
         cmds.connectAttr(f"{follicle_transform}.parentInverseMatrix[0]", f"{mult_matrix_node}.matrixIn[1]", force=True)
         cmds.connectAttr(f"{mult_matrix_node}.matrixSum", f"{decompose_matrix_node}.inputMatrix", force=True)
 
-        # Translate ve rotate kilitlerini aç
+        # Unlock translate and rotate locks
         for attr_comp in ["translate", "rotate"]:
             for axis in ["X", "Y", "Z"]:
                 attr_full_name = f"{follicle_transform}.{attr_comp}{axis}"
                 if cmds.getAttr(attr_full_name, lock=True):
                     cmds.setAttr(attr_full_name, lock=False)
 
-        # Mevcut bağlantıları kaldır
+        # Remove existing connections
         if cmds.isConnected(f"{follicle_shape}.outTranslate", f"{follicle_transform}.translate"):
             cmds.disconnectAttr(f"{follicle_shape}.outTranslate", f"{follicle_transform}.translate")
         if cmds.isConnected(f"{follicle_shape}.outRotate", f"{follicle_transform}.rotate"):
@@ -179,7 +179,7 @@ def setup_follicle_connections(follicle_transform, follicle_shape, node_prefix):
         slide_ctrl_result = cmds.circle(name=f"{base_name}_Slide_ctrl", normal=(0, 1, 0), radius=1)
         
         if not slide_ctrl_result:
-            cmds.warning("Slide_ctrl oluşturma başarısız.")
+            cmds.warning("Failed to create Slide_ctrl.")
             return None, None
             
         slide_ctrl = slide_ctrl_result[0]
@@ -209,22 +209,22 @@ def setup_follicle_connections(follicle_transform, follicle_shape, node_prefix):
         cmds.connectAttr(f"{slide_ctrl}.Precision", f"{precision_v_node}.input2", force=True)
         cmds.connectAttr(f"{slide_ctrl}.Precision", f"{precision_u_node}.input2", force=True)
 
-        pos_v_node = cmds.createNode("addDoubleLinear", name=f"{base_name}_pos_U_driver")  # U için
-        pos_u_node = cmds.createNode("addDoubleLinear", name=f"{base_name}_pos_V_driver")  # V için
+        pos_v_node = cmds.createNode("addDoubleLinear", name=f"{base_name}_pos_U_driver")  # For U
+        pos_u_node = cmds.createNode("addDoubleLinear", name=f"{base_name}_pos_V_driver")  # For V
         cmds.connectAttr(f"{precision_v_node}.output", f"{pos_v_node}.input1", force=True)
         cmds.connectAttr(f"{precision_u_node}.output", f"{pos_u_node}.input1", force=True)
 
-        # Follicle shape'in mevcut UV değerlerini al
+        # Get current UV values of the follicle shape
         param_u = cmds.getAttr(f"{follicle_shape}.parameterU")
         param_v = cmds.getAttr(f"{follicle_shape}.parameterV")
 
-        # AddDoubleLinear input2 değerlerini ayarla (mevcut UV pozisyonları)
+        # Set AddDoubleLinear input2 values (current UV positions)
         cmds.setAttr(f"{pos_v_node}.input2", param_u)
         cmds.setAttr(f"{pos_u_node}.input2", param_v)
 
         clamp_node = cmds.createNode("clamp", name=f"{base_name}_clamp")
-        cmds.connectAttr(f"{pos_v_node}.output", f"{clamp_node}.inputR", force=True)  # U için inputR
-        cmds.connectAttr(f"{pos_u_node}.output", f"{clamp_node}.inputG", force=True)  # V için inputG
+        cmds.connectAttr(f"{pos_v_node}.output", f"{clamp_node}.inputR", force=True)  # inputR for U
+        cmds.connectAttr(f"{pos_u_node}.output", f"{clamp_node}.inputG", force=True)  # inputG for V
         cmds.setAttr(f"{clamp_node}.minR", 0)
         cmds.setAttr(f"{clamp_node}.minG", 0)
         cmds.setAttr(f"{clamp_node}.minB", 0)
@@ -244,7 +244,7 @@ def setup_follicle_connections(follicle_transform, follicle_shape, node_prefix):
 
         bind_joint_result = cmds.joint(name=f"{base_name}_bind")
         if not bind_joint_result:
-            cmds.warning("Bind joint oluşturma başarısız.")
+            cmds.warning("Failed to create bind joint.")
             bind_joint = None
         else:
             bind_joint = bind_joint_result
@@ -259,21 +259,21 @@ def setup_follicle_connections(follicle_transform, follicle_shape, node_prefix):
 
         curve_obj_shape_list = cmds.listRelatives(slide_ctrl, shapes=True, type="nurbsCurve", fullPath=True)
         if not curve_obj_shape_list:
-            print(f"Slide_ctrl '{slide_ctrl}' altında NURBS curve shape bulunamadı. CV manipülasyonu atlanıyor.")
+            print(f"No NURBS curve shape found under Slide_ctrl '{slide_ctrl}'. Skipping CV manipulation.")
         else:
             curve_obj_shape = curve_obj_shape_list[0]
             cv_list = cmds.ls(f"{curve_obj_shape}.cv[*]", flatten=True)
             
-            # Curve merkezini bul
+            # Find curve center
             try:
                 curve_transform = cmds.listRelatives(curve_obj_shape, parent=True, fullPath=True)[0]
                 curve_center = cmds.objectCenter(curve_transform, gl=True)
             except:
-                # objectCenter başarısız olursa manual hesapla
+                # Manual calculation if objectCenter fails
                 bb = cmds.exactWorldBoundingBox(slide_ctrl)
                 curve_center = [(bb[0]+bb[3])/2, (bb[1]+bb[4])/2, (bb[2]+bb[5])/2]
 
-            # CV'leri küçült
+            # Scale down CVs
             for cv in cv_list:
                 cv_pos = cmds.pointPosition(cv, world=True)
                 new_pos = [
@@ -283,87 +283,87 @@ def setup_follicle_connections(follicle_transform, follicle_shape, node_prefix):
                 ]
                 cmds.xform(cv, worldSpace=True, translation=new_pos)
             
-            # CV'leri rotate et
+            # Rotate CVs
             cmds.rotate(90, 0, 0, f"{curve_obj_shape}.cv[*]", relative=True, objectSpace=True)
             cmds.move(0, 0, 0.02, f"{curve_obj_shape}.cv[*]", relative=True, objectSpace=True, worldSpaceDistance=True)
-            print("Curve CV manipülasyonu başarıyla uygulandı.")
+            print("Curve CV manipulation successfully applied.")
 
-        print(f"Gelişmiş follicle setup '{follicle_transform}' için uygulandı.")
+        print(f"Advanced follicle setup applied for '{follicle_transform}'.")
         return slide_ctrl, bind_joint
         
     except Exception as e:
-        cmds.warning(f"Gelişmiş follicle bağlantıları oluşturulurken hata: {e}")
+        cmds.warning(f"Error creating advanced follicle connections: {e}")
         return None, None
 
 def run_step2_logic(mesh_shape_name, locator_name, name_prefix="textureRigger"):
     """
-    Step 2'nin ana mantığını çalıştırır: Locator pozisyonundan UV al, follicle oluştur
-    ve gelişmiş follicle bağlantılarını uygula.
+    Runs the main logic of Step 2: Get UV from locator position, create follicle
+    and apply advanced follicle connections.
     
     Args:
-        mesh_shape_name (str): Mesh shape düğümünün adı.
-        locator_name (str): Locator transform düğümünün adı.
-        name_prefix (str, optional): Oluşturulacak nesnelerin isim öneki. Defaults to "textureRigger".
+        mesh_shape_name (str): Name of the mesh shape node.
+        locator_name (str): Name of the locator transform node.
+        name_prefix (str, optional): Name prefix for objects to be created. Defaults to "textureRigger".
     
     Returns:
-        tuple: (follicle_transform_name, slide_ctrl_name) veya (None, None)
+        tuple: (follicle_transform_name, slide_ctrl_name) or (None, None)
     """
     if not mesh_shape_name or not cmds.objExists(mesh_shape_name):
-        cmds.warning("Step 2 için geçerli bir mesh shape adı sağlanmadı veya mesh bulunamadı.")
+        cmds.warning("No valid mesh shape name provided for Step 2 or mesh not found.")
         return None, None
     if not locator_name or not cmds.objExists(locator_name):
-        cmds.warning("Step 2 için geçerli bir locator adı sağlanmadı veya locator bulunamadı.")
+        cmds.warning("No valid locator name provided for Step 2 or locator not found.")
         return None, None
 
-    # Locator'ın dünya uzayı pozisyonunu al
+    # Get the world space position of the locator
     locator_pos_list = cmds.xform(locator_name, query=True, translation=True, worldSpace=True)
     if not locator_pos_list or len(locator_pos_list) != 3:
-        cmds.warning(f"Locator '{locator_name}' pozisyonu alınamadı.")
+        cmds.warning(f"Could not get position of locator '{locator_name}'.")
         return None, None
     
     locator_world_point = om.MVector(locator_pos_list[0], locator_pos_list[1], locator_pos_list[2])
 
-    # Bu dünya pozisyonuna karşılık gelen UV'yi mesh üzerinde bul
+    # Find the corresponding UV on the mesh for this world position
     uv_coords = get_uv_at_point(mesh_shape_name, locator_world_point)
 
     actual_prefix = name_prefix if name_prefix else "uv"
 
     if uv_coords:
         u, v = uv_coords
-        print(f"Locator pozisyonuna karşılık gelen UV: ({u}, {v})")
+        print(f"UV corresponding to locator position: ({u}, {v})")
         
-        # 1. Follicle ve parent_grp oluştur
+        # 1. Create follicle and parent_grp
         follicle_transform, initial_parent_group = create_follicle_at_uv(mesh_shape_name, u, v, name_prefix) # Pass original name_prefix for follicle creation
         if follicle_transform and initial_parent_group:
             follicle_shape_list = cmds.listRelatives(follicle_transform, shapes=True, type="follicle", fullPath=True)
             if not follicle_shape_list:
-                cmds.warning(f"Follicle transform '{follicle_transform}' için follicle shape bulunamadı.")
-                # Oluşturulanları temizle
+                cmds.warning(f"Could not find follicle shape for follicle transform '{follicle_transform}'.")
+                # Clean up created objects
                 if cmds.objExists(follicle_transform): cmds.delete(follicle_transform)
                 return None, None
             
             follicle_shape = follicle_shape_list[0]
             
-            # 2. Gelişmiş follicle bağlantılarını uygula
+            # 2. Apply advanced follicle connections
             slide_ctrl, bind_joint = setup_follicle_connections(follicle_transform, follicle_shape, actual_prefix) # Pass actual_prefix for internal nodes
             
             if slide_ctrl:
-                # Eğer parent_grp artık kullanılmıyorsa silinebilir
+                # Delete parent_grp if it's no longer used
                 if initial_parent_group and cmds.objExists(initial_parent_group):
                     cmds.delete(initial_parent_group)
-                    print(f"İlk oluşturulan parent_grp '{initial_parent_group}' silindi.")
+                    print(f"Initial parent_grp '{initial_parent_group}' deleted.")
                 
-                # Slide kontrol objesini seç
+                # Select the slide control object
                 cmds.select(slide_ctrl, replace=True)
                 return follicle_transform, slide_ctrl
             else:
-                # Gelişmiş setup başarısız olursa, temel follicle ve parent_grp ile devam et
+                # If advanced setup fails, continue with basic follicle and parent_grp
                 cmds.select(follicle_transform, replace=True)
                 return follicle_transform, initial_parent_group
         else:
-            cmds.warning("Follicle ve parent group oluşturulamadı.")
+            cmds.warning("Could not create follicle and parent group.")
             return None, None
     else:
-        cmds.warning(f"Locator pozisyonu için mesh '{mesh_shape_name}' üzerinde UV koordinatı bulunamadı.")
+        cmds.warning(f"Could not find UV coordinate on mesh '{mesh_shape_name}' for locator position.")
         return None, None
 

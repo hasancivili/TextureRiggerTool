@@ -3,8 +3,8 @@ import maya.OpenMaya as om
 
 def check_uv_overlap(mesh_node, u_coord, v_coord):
     """
-    Belirtilen UV koordinatında birden fazla yüzey (face) olup olmadığını kontrol eder.
-    (Bu fonksiyonun doğruluğu ve etkinliği daha da geliştirilebilir.)
+    Checks if there are multiple faces at the specified UV coordinate.
+    (The accuracy and efficiency of this function can be further improved.)
     """
     selection_list = om.MSelectionList()
     selection_list.add(mesh_node)
@@ -12,8 +12,8 @@ def check_uv_overlap(mesh_node, u_coord, v_coord):
     try:
         selection_list.getDagPath(0, dag_path)
     except RuntimeError:
-        cmds.warning(f"Mesh node '{mesh_node}' DAG path alınamadı.")
-        return True # Hata durumunda işlemi durdurmak için True dönelim
+        cmds.warning(f"Could not get DAG path for mesh node '{mesh_node}'.")
+        return True # Return True in case of error to stop the process
 
     mesh_fn = om.MFnMesh(dag_path)
     current_uv_set = mesh_fn.currentUVSetName()
@@ -27,33 +27,33 @@ def check_uv_overlap(mesh_node, u_coord, v_coord):
             mesh_fn.getPolygonUVs(i, current_uv_set, face_uvs_u, face_uvs_v)
             for j in range(face_uvs_u.length()):
                 if abs(face_uvs_u[j] - u_coord) < 0.0001 and abs(face_uvs_v[j] - v_coord) < 0.0001:
-                    uv_tuple = (round(u_coord, 4), round(v_coord, 4)) # Tolerans için yuvarlama
+                    uv_tuple = (round(u_coord, 4), round(v_coord, 4)) # Rounding for tolerance
                     if uv_tuple not in hit_faces:
                         hit_faces[uv_tuple] = []
                     if i not in hit_faces[uv_tuple]:
                         hit_faces[uv_tuple].append(i)
         except Exception as e:
-            # print(f"Yüzey {i} için UV alınırken hata: {e}")
+            # print(f"Error getting UVs for face {i}: {e}")
             continue
     
     uv_tuple_check = (round(u_coord, 4), round(v_coord, 4))
     if uv_tuple_check in hit_faces and len(hit_faces[uv_tuple_check]) > 1:
-        # cmds.warning(f"UV Overlap (basit kontrol): {len(hit_faces[uv_tuple_check])} yüzey ({hit_faces[uv_tuple_check]}) UV ({u_coord}, {v_coord}) paylaşıyor.")
+        # cmds.warning(f"UV Overlap (simple check): {len(hit_faces[uv_tuple_check])} faces ({hit_faces[uv_tuple_check]}) share UV ({u_coord}, {v_coord}).")
         return True
     return False
 
 def get_world_space_at_uv(mesh_shape_name, u_coord, v_coord):
     """
-    Belirtilen UV koordinatına karşılık gelen dünya uzayı (world space) koordinatını alır.
-    uvPin node'u kullanarak daha güvenilir bir sonuç elde eder.
+    Gets the world space coordinate corresponding to the specified UV coordinate.
+    Uses uvPin node for more reliable results.
     """
     if not cmds.objExists(mesh_shape_name):
-        cmds.warning(f"Mesh shape '{mesh_shape_name}' bulunamadı.")
+        cmds.warning(f"Mesh shape '{mesh_shape_name}' not found.")
         return None
 
     mesh_transform_name_list = cmds.listRelatives(mesh_shape_name, parent=True, fullPath=True)
     if not mesh_transform_name_list:
-        cmds.warning(f"Mesh shape '{mesh_shape_name}' için transform bulunamadı.")
+        cmds.warning(f"Could not find transform for mesh shape '{mesh_shape_name}'.")
         return None
     mesh_transform_name = mesh_transform_name_list[0]
 
@@ -61,31 +61,31 @@ def get_world_space_at_uv(mesh_shape_name, u_coord, v_coord):
     try:
         uv_pin_node = cmds.createNode("uvPin")
         
-        # worldMesh veya outMesh bağlantısı
+        # worldMesh or outMesh connection
         if cmds.attributeQuery("worldMesh", node=mesh_shape_name, exists=True) and \
            cmds.attributeQuery("worldMesh[0]", node=mesh_shape_name, exists=True):
             cmds.connectAttr(f"{mesh_shape_name}.worldMesh[0]", f"{uv_pin_node}.deformedGeometry")
         elif cmds.attributeQuery("outMesh", node=mesh_shape_name, exists=True):
              cmds.connectAttr(f"{mesh_shape_name}.outMesh", f"{uv_pin_node}.deformedGeometry")
         else:
-            cmds.warning(f"Mesh shape '{mesh_shape_name}' üzerinde uygun bir mesh output attribute bulunamadı (worldMesh[0] veya outMesh).")
+            cmds.warning(f"Could not find appropriate mesh output attribute on mesh shape '{mesh_shape_name}' (worldMesh[0] or outMesh).")
             if uv_pin_node and cmds.objExists(uv_pin_node): cmds.delete(uv_pin_node)
             return None
 
-        # uvPin node'una transformun worldMatrix'ini bağla (doğru pozisyon için önemli)
-        # 'originalGeometryMatrix' yerine 'inputMatrix' kullanılmalı veya uvPin'in kendi transformu ayarlanmalı.
-        # Genellikle worldMatrix[0] -> inputMatrix bağlantısı yapılır.
+        # Connect transform's worldMatrix to the uvPin node (important for correct position)
+        # Should use 'inputMatrix' instead of 'originalGeometryMatrix', or adjust the uvPin's own transform.
+        # Typically a worldMatrix[0] -> inputMatrix connection is made.
         if cmds.attributeQuery("inputMatrix", node=uv_pin_node, exists=True):
             cmds.connectAttr(f"{mesh_transform_name}.worldMatrix[0]", f"{uv_pin_node}.inputMatrix")
         else:
-            # Alternatif olarak, uvPin nodunun transformunu mesh'in transformuna eşitleyebiliriz
-            # veya uvPin'i mesh'e parent edip transformlarını sıfırlayabiliriz.
-            # Ancak inputMatrix en temiz yöntemdir. Eğer yoksa, uvPin'in çalışma şekli farklı olabilir.
-            # Şimdilik, inputMatrix'in var olduğunu varsayıyoruz. Yoksa, bu bir sorun teşkil edebilir.
-            # Maya'nın daha eski sürümlerinde bu attribute olmayabilir veya farklı olabilir.
-            # Modern Maya sürümlerinde (örn. 2018+) inputMatrix olmalıdır.
-            cmds.warning(f"uvPin node '{uv_pin_node}' üzerinde 'inputMatrix' attribute'u bulunamadı. Dünya pozisyonu yanlış olabilir.")
-            # Bu durumda bile devam etmeyi deneyebiliriz, ancak sonuçlar yanıltıcı olabilir.
+            # Alternatively, we could set the uvPin node's transform equal to the mesh's transform
+            # or parent the uvPin to the mesh and zero out its transforms.
+            # However, inputMatrix is the cleanest method. If it's missing, uvPin behavior may differ.
+            # For now, we assume inputMatrix exists. If not, this could be problematic.
+            # In older Maya versions this attribute might not exist or might be different.
+            # In modern Maya versions (e.g., 2018+) inputMatrix should exist.
+            cmds.warning(f"Could not find 'inputMatrix' attribute on uvPin node '{uv_pin_node}'. World position may be incorrect.")
+            # We can still try to continue, but results may be misleading.
 
         cmds.setAttr(f"{uv_pin_node}.coordinate[0].coordinateU", u_coord)
         cmds.setAttr(f"{uv_pin_node}.coordinate[0].coordinateV", v_coord)
@@ -95,7 +95,7 @@ def get_world_space_at_uv(mesh_shape_name, u_coord, v_coord):
         
         return om.MPoint(world_pos[0], world_pos[1], world_pos[2])
     except Exception as e:
-        cmds.warning(f"Dünya koordinatı (uvPin) alınırken hata: {e}")
+        cmds.warning(f"Error getting world coordinate (uvPin): {e}")
         return None
     finally:
         if uv_pin_node and cmds.objExists(uv_pin_node):
@@ -103,60 +103,60 @@ def get_world_space_at_uv(mesh_shape_name, u_coord, v_coord):
 
 def create_locator_at_point(point, name_prefix="textureRigger"): # Changed default name_prefix
     """
-    Belirtilen dünya uzayı koordinatında bir locator oluşturur.
+    Creates a locator at the specified world space coordinate.
     
     Args:
-        point (om.MPoint): Locator'ın oluşturulacağı dünya uzayı koordinatı.
-        name_prefix (str): Locator'ın isim öneki.
+        point (om.MPoint): World space coordinate where the locator will be created.
+        name_prefix (str): Name prefix for the locator.
     """
-    # İsim önekini kontrol et ve boş değilse locator isimlendirmesinde kullan
+    # Check the name prefix and use it in locator naming if not empty
     locator_name = f"{name_prefix}_locator#" if name_prefix else "textureRigger_locator#" # Changed fallback prefix
     locator = cmds.spaceLocator(name=locator_name)
     cmds.xform(locator[0], translation=(point.x, point.y, point.z), worldSpace=True)
-    # cmds.select(locator[0]) # Seçimi ana UI yönetsin
-    print(f"Locator '{locator[0]}' oluşturuldu: ({point.x}, {point.y}, {point.z})")
+    # cmds.select(locator[0]) # Let the main UI handle selection
+    print(f"Locator '{locator[0]}' created at: ({point.x}, {point.y}, {point.z})")
     return locator[0]
 
 def run_step1_logic(name_prefix="textureRigger"): # Changed default name_prefix
     """
-    Step 1'in ana mantığını çalıştırır: Mesh seçimi, UV kontrolü ve locator oluşturma.
+    Runs the main logic of Step 1: Mesh selection, UV checking, and locator creation.
     
     Args:
-        name_prefix (str): Locator ve diğer nesnelerin isim öneki.
+        name_prefix (str): Name prefix for the locator and other objects.
     
     Returns:
-        tuple: (mesh_transform, mesh_shape, locator_name) veya (None, None, None)
+        tuple: (mesh_transform, mesh_shape, locator_name) or (None, None, None)
     """
     selected_objects = cmds.ls(selection=True, long=True, type="transform")
 
     if not selected_objects:
-        cmds.warning("Lütfen bir polygon mesh seçin.")
-        return None, None, None # 3 değer döndür
+        cmds.warning("Please select a polygon mesh.")
+        return None, None, None # Return 3 values
 
     mesh_transform = selected_objects[0]
     shapes = cmds.listRelatives(mesh_transform, shapes=True, fullPath=True, type="mesh")
 
     if not shapes:
-        cmds.warning(f"Seçilen obje '{mesh_transform}' bir polygon mesh değil veya mesh shape'i yok.")
-        return None, None, None # 3 değer döndür
+        cmds.warning(f"Selected object '{mesh_transform}' is not a polygon mesh or has no mesh shape.")
+        return None, None, None # Return 3 values
     
     mesh_shape = shapes[0]
 
     uv_to_check_u, uv_to_check_v = 0.5, 0.5
     if check_uv_overlap(mesh_shape, uv_to_check_u, uv_to_check_v):
-        cmds.warning(f"UV ({uv_to_check_u}, {uv_to_check_v}) noktasında UV overlapping tespit edildi (veya birden fazla yüzey bulundu). Lütfen UV'leri kontrol edin.")
-        return None, None, None # 3 değer döndür
+        cmds.warning(f"UV overlapping detected at point ({uv_to_check_u}, {uv_to_check_v}) (or multiple faces found). Please check your UVs.")
+        return None, None, None # Return 3 values
 
     world_point = get_world_space_at_uv(mesh_shape, uv_to_check_u, uv_to_check_v)
     if world_point:
         locator_name = create_locator_at_point(world_point, name_prefix)
-        if locator_name: # create_locator_at_point da None dönebilir (çok olası olmasa da)
+        if locator_name: # create_locator_at_point can also return None (though unlikely)
             cmds.select(locator_name, replace=True)
             return mesh_transform, mesh_shape, locator_name
         else:
-            cmds.warning(f"Locator oluşturulamadı.")
-            return None, None, None # 3 değer döndür
+            cmds.warning(f"Could not create locator.")
+            return None, None, None # Return 3 values
     else:
-        cmds.warning(f"UV ({uv_to_check_u}, {uv_to_check_v}) noktasında dünya koordinatı alınamadı.")
-        return None, None, None # 3 değer döndür
+        cmds.warning(f"Could not get world coordinate at UV point ({uv_to_check_u}, {uv_to_check_v}).")
+        return None, None, None # Return 3 values
 
