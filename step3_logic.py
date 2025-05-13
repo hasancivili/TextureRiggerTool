@@ -580,12 +580,99 @@ def find_bind_joint_from_follicle(follicle_transform):
     
     return None
 
-def run_step3_logic(mesh_transform, image_file_path=None, name_prefix="textureRigger", follicle_transform=None):
+def setup_sequence_texture(file_node, slide_ctrl, is_sequence=False):
+    """
+    Sets up a texture file node for sequence playback and connects it to a slide ctrl.
+    
+    Args:
+        file_node (str): The file texture node name
+        slide_ctrl (str): The slide control that will drive the frame
+        is_sequence (bool): Whether to enable sequence mode
+        
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    if not cmds.objExists(file_node) or not cmds.objExists(slide_ctrl):
+        cmds.warning(f"File node '{file_node}' or slide ctrl '{slide_ctrl}' does not exist.")
+        return False
+    
+    try:
+        # Set useFrameExtension based on is_sequence flag
+        cmds.setAttr(f"{file_node}.useFrameExtension", 1 if is_sequence else 0)
+        
+        # Handle Frame attribute on slide_ctrl
+        frame_attr = f"{slide_ctrl}.Frame"
+        
+        # If sequence mode is enabled, create or update the Frame attribute
+        if is_sequence:
+            # Check if Frame attribute already exists
+            if not cmds.attributeQuery("Frame", node=slide_ctrl, exists=True):
+                # Create the Frame attribute if it doesn't exist
+                cmds.addAttr(slide_ctrl, longName="Frame", attributeType="long", defaultValue=1, 
+                           minValue=0, maxValue=9999, keyable=True)
+                print(f"Added Frame attribute to {slide_ctrl}")
+            
+            # Connect Frame attribute to frameExtension
+            if not cmds.isConnected(frame_attr, f"{file_node}.frameExtension"):
+                cmds.connectAttr(frame_attr, f"{file_node}.frameExtension", force=True)
+                print(f"Connected {frame_attr} to {file_node}.frameExtension")
+        else:
+            # Disconnect if exists and sequence mode is disabled
+            if cmds.attributeQuery("Frame", node=slide_ctrl, exists=True):
+                if cmds.isConnected(frame_attr, f"{file_node}.frameExtension"):
+                    cmds.disconnectAttr(frame_attr, f"{file_node}.frameExtension")
+                    print(f"Disconnected {frame_attr} from {file_node}.frameExtension")
+                
+                # Optionally, we could also remove the attribute
+                # cmds.deleteAttr(slide_ctrl, attribute="Frame")
+        
+        return True
+    except Exception as e:
+        cmds.warning(f"Error setting up sequence texture: {e}")
+        return False
+
+def hide_slide_ctrl_attributes(slide_ctrl):
+    """
+    Makes specified attributes of slide_ctrl non-keyable and hidden.
+    
+    Args:
+        slide_ctrl (str): The slide control node name
+    
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    if not slide_ctrl or not cmds.objExists(slide_ctrl):
+        return False
+    
+    try:
+        # List of attributes to hide
+        attrs_to_hide = ["translateZ", "rotateX", "rotateY", "scaleZ"]
+        
+        for attr in attrs_to_hide:
+            if cmds.attributeQuery(attr, node=slide_ctrl, exists=True):
+                # Make attribute non-keyable and hide it
+                cmds.setAttr(f"{slide_ctrl}.{attr}", keyable=False, channelBox=False)
+        
+        print(f"Successfully hidden specified attributes on {slide_ctrl}")
+        return True
+    except Exception as e:
+        cmds.warning(f"Error hiding attributes on {slide_ctrl}: {e}")
+        return False
+
+def run_step3_logic(mesh_transform, image_file_path=None, name_prefix="textureRigger", follicle_transform=None, is_sequence=False):
     """
     Main logic for Step 3: Connects texture and organizes scene.
-    Returns a tuple: 
-    (file_node, projection_node, place2d_node, place3d_node, layered_texture, material_node, updated_mesh_transform)
-    or (None, None, None, None, None, None, original_mesh_transform_if_failed)
+    
+    Args:
+        mesh_transform (str): Mesh transform node name
+        image_file_path (str, optional): Path to image file
+        name_prefix (str, optional): Prefix for node names
+        follicle_transform (str, optional): Follicle transform node name
+        is_sequence (bool, optional): Whether the texture is a sequence
+        
+    Returns:
+        tuple: (file_node, projection_node, place2d_node, place3d_node, layered_texture, material_node, updated_mesh_transform)
+        or (None, None, None, None, None, None, original_mesh_transform_if_failed)
     """
     if not image_file_path:
         cmds.warning("No image file path provided for texture connection.")
@@ -606,13 +693,35 @@ def run_step3_logic(mesh_transform, image_file_path=None, name_prefix="textureRi
         cmds.warning(f"Texture connection failed for prefix '{name_prefix}'. Skipping organization.")
         return None, None, None, None, None, None, mesh_transform
 
+    # Find slide_ctrl for the follicle
+    slide_ctrl = None
+    if follicle_transform and cmds.objExists(follicle_transform):
+        # Try to find Slide_ctrl from the follicle hierarchy
+        all_descendants = cmds.listRelatives(follicle_transform, allDescendents=True, type="transform") or []
+        for desc in all_descendants:
+            if "_Slide_ctrl" in desc:
+                slide_ctrl = desc
+                break
+        
+        # If not found directly, try through the bind_joint's parent
+        if not slide_ctrl and bind_joint:
+            parent_transforms = cmds.listRelatives(bind_joint, parent=True, type="transform")
+            if parent_transforms:
+                potential_slide_ctrl = parent_transforms[0]
+                if "_Slide_ctrl" in potential_slide_ctrl:
+                    slide_ctrl = potential_slide_ctrl
+
+    # Setup sequence texture if needed
+    if is_sequence and slide_ctrl:
+        setup_sequence_texture(file_node, slide_ctrl, is_sequence)
+
+    # Hide specified attributes on slide_ctrl
+    if slide_ctrl:
+        hide_slide_ctrl_attributes(slide_ctrl)
+
     if follicle_transform and place3d_node: 
         updated_mesh_path_after_organization = organize_scene_hierarchy(mesh_transform, follicle_transform, place3d_node, name_prefix)
     else:
         cmds.warning(f"Skipping scene organization for prefix '{name_prefix}' due to missing follicle or place3dTexture node.")
-        if not follicle_transform:
-            cmds.warning(f"Follicle transform was missing for prefix '{name_prefix}'.")
-        if not place3d_node:
-            cmds.warning(f"Place3dTexture node was missing for prefix '{name_prefix}'. This might indicate a failure in connect_texture_to_mesh.")
             
     return file_node, projection_node, place2d_node, place3d_node, layered_texture, material, updated_mesh_path_after_organization

@@ -1,176 +1,197 @@
 import maya.cmds as cmds
 import maya.OpenMaya as om
 
-def check_uv_overlap(mesh_node, u_coord, v_coord):
+# Module-level variables to store reference objects
+_ref_follicle_transform = None
+_ref_follicle_shape = None
+_ref_null_group = None
+_ref_mesh_transform = None
+_ref_mesh_shape = None
+
+def has_uv_map(mesh_shape):
     """
-    Checks if there are multiple faces at the specified UV coordinate.
-    (The accuracy and efficiency of this function can be further improved.)
-    """
-    selection_list = om.MSelectionList()
-    selection_list.add(mesh_node)
-    dag_path = om.MDagPath()
-    try:
-        selection_list.getDagPath(0, dag_path)
-    except RuntimeError:
-        cmds.warning(f"Could not get DAG path for mesh node '{mesh_node}'.")
-        return True # Return True in case of error to stop the process
-
-    mesh_fn = om.MFnMesh(dag_path)
-    current_uv_set = mesh_fn.currentUVSetName()
-    hit_faces = {}
-    num_faces = mesh_fn.numPolygons()
-
-    for i in range(num_faces):
-        face_uvs_u = om.MFloatArray()
-        face_uvs_v = om.MFloatArray()
-        try:
-            mesh_fn.getPolygonUVs(i, current_uv_set, face_uvs_u, face_uvs_v)
-            for j in range(face_uvs_u.length()):
-                if abs(face_uvs_u[j] - u_coord) < 0.0001 and abs(face_uvs_v[j] - v_coord) < 0.0001:
-                    uv_tuple = (round(u_coord, 4), round(v_coord, 4)) # Rounding for tolerance
-                    if uv_tuple not in hit_faces:
-                        hit_faces[uv_tuple] = []
-                    if i not in hit_faces[uv_tuple]:
-                        hit_faces[uv_tuple].append(i)
-        except Exception as e:
-            # print(f"Error getting UVs for face {i}: {e}")
-            continue
-    
-    uv_tuple_check = (round(u_coord, 4), round(v_coord, 4))
-    if uv_tuple_check in hit_faces and len(hit_faces[uv_tuple_check]) > 1:
-        # cmds.warning(f"UV Overlap (simple check): {len(hit_faces[uv_tuple_check])} faces ({hit_faces[uv_tuple_check]}) share UV ({u_coord}, {v_coord}).")
-        return True
-    return False
-
-def get_world_space_at_uv(mesh_shape_name, u_coord, v_coord):
-    """
-    Gets the world space coordinate corresponding to the specified UV coordinate.
-    Uses uvPin node for more reliable results.
-    """
-    if not cmds.objExists(mesh_shape_name):
-        cmds.warning(f"Mesh shape '{mesh_shape_name}' not found.")
-        return None
-
-    mesh_transform_name_list = cmds.listRelatives(mesh_shape_name, parent=True, fullPath=True)
-    if not mesh_transform_name_list:
-        cmds.warning(f"Could not find transform for mesh shape '{mesh_shape_name}'.")
-        return None
-    mesh_transform_name = mesh_transform_name_list[0]
-
-    uv_pin_node = None
-    try:
-        uv_pin_node = cmds.createNode("uvPin")
-        
-        # worldMesh or outMesh connection
-        if cmds.attributeQuery("worldMesh", node=mesh_shape_name, exists=True) and \
-           cmds.attributeQuery("worldMesh[0]", node=mesh_shape_name, exists=True):
-            cmds.connectAttr(f"{mesh_shape_name}.worldMesh[0]", f"{uv_pin_node}.deformedGeometry")
-        elif cmds.attributeQuery("outMesh", node=mesh_shape_name, exists=True):
-             cmds.connectAttr(f"{mesh_shape_name}.outMesh", f"{uv_pin_node}.deformedGeometry")
-        else:
-            cmds.warning(f"Could not find appropriate mesh output attribute on mesh shape '{mesh_shape_name}' (worldMesh[0] or outMesh).")
-            if uv_pin_node and cmds.objExists(uv_pin_node): cmds.delete(uv_pin_node)
-            return None
-
-        # Connect transform's worldMatrix to the uvPin node (important for correct position)
-        # Should use 'inputMatrix' instead of 'originalGeometryMatrix', or adjust the uvPin's own transform.
-        # Typically a worldMatrix[0] -> inputMatrix connection is made.
-        if cmds.attributeQuery("inputMatrix", node=uv_pin_node, exists=True):
-            cmds.connectAttr(f"{mesh_transform_name}.worldMatrix[0]", f"{uv_pin_node}.inputMatrix")
-        else:
-            # Alternatively, we could set the uvPin node's transform equal to the mesh's transform
-            # or parent the uvPin to the mesh and zero out its transforms.
-            # However, inputMatrix is the cleanest method. If it's missing, uvPin behavior may differ.
-            # For now, we assume inputMatrix exists. If not, this could be problematic.
-            # In older Maya versions this attribute might not exist or might be different.
-            # In modern Maya versions (e.g., 2018+) inputMatrix should exist.
-            cmds.warning(f"Could not find 'inputMatrix' attribute on uvPin node '{uv_pin_node}'. World position may be incorrect.")
-            # We can still try to continue, but results may be misleading.
-
-        cmds.setAttr(f"{uv_pin_node}.coordinate[0].coordinateU", u_coord)
-        cmds.setAttr(f"{uv_pin_node}.coordinate[0].coordinateV", v_coord)
-        
-        matrix_values = cmds.getAttr(f"{uv_pin_node}.outputMatrix[0]")
-        world_pos = [matrix_values[12], matrix_values[13], matrix_values[14]]
-        
-        return om.MPoint(world_pos[0], world_pos[1], world_pos[2])
-    except Exception as e:
-        cmds.warning(f"Error getting world coordinate (uvPin): {e}")
-        return None
-    finally:
-        if uv_pin_node and cmds.objExists(uv_pin_node):
-            cmds.delete(uv_pin_node)
-
-def create_locator_at_point(point, name_prefix="textureRigger"): # Changed default name_prefix
-    """
-    Creates a locator at the specified world space coordinate.
+    Checks if the given mesh has UV coordinates.
     
     Args:
-        point (om.MPoint): World space coordinate where the locator will be created.
-        name_prefix (str): Name prefix for the locator.
+        mesh_shape (str): Name of the mesh shape node
+        
+    Returns:
+        bool: True if the mesh has UV coordinates, False otherwise
     """
-    # Check the name prefix and use it in locator naming if not empty
-    locator_name = f"{name_prefix}_locator#" if name_prefix else "textureRigger_locator#" # Changed fallback prefix
-    locator = cmds.spaceLocator(name=locator_name)
-    cmds.xform(locator[0], translation=(point.x, point.y, point.z), worldSpace=True)
-    # cmds.select(locator[0]) # Let the main UI handle selection
-    print(f"Locator '{locator[0]}' created at: ({point.x}, {point.y}, {point.z})")
-    return locator[0]
+    if not cmds.objExists(mesh_shape):
+        return False
+        
+    # Check if the mesh has UVs
+    try:
+        # Method 1: Check if polyEvaluate returns UV values
+        uv_count = cmds.polyEvaluate(mesh_shape, uv=True)
+        if isinstance(uv_count, (int, float)) and uv_count > 0:
+            return True
+            
+        # Method 2: Try to get UV sets
+        uv_sets = cmds.polyUVSet(mesh_shape, query=True, allUVSets=True)
+        if uv_sets and len(uv_sets) > 0:
+            # Check if any UV in the first set
+            uv_count = cmds.polyEvaluate(mesh_shape, uvcoord=True)
+            return isinstance(uv_count, (int, float)) and uv_count > 0
+            
+        return False
+    except Exception as e:
+        print(f"Error checking UV map for mesh '{mesh_shape}': {e}")
+        return False
+
+def create_reference_follicle(mesh_transform, mesh_shape):
+    """
+    Creates a reference follicle (PosRefFol) and a null group inside it at UV position 0.5, 0.5.
+    
+    Args:
+        mesh_transform (str): Name of the mesh transform node
+        mesh_shape (str): Name of the mesh shape node
+        
+    Returns:
+        tuple: (follicle_transform, follicle_shape, null_group) or (None, None, None) if failed
+    """
+    global _ref_follicle_transform, _ref_follicle_shape, _ref_null_group
+    
+    # Check if mesh exists
+    if not cmds.objExists(mesh_shape):
+        cmds.warning(f"Mesh shape '{mesh_shape}' not found.")
+        return None, None, None
+
+    # Check if mesh has UVs
+    if not has_uv_map(mesh_shape):
+        cmds.warning(f"Mesh shape '{mesh_shape}' does not have UV coordinates.")
+        return None, None, None
+
+    try:
+        # Create a follicle shape and its parent transform
+        follicle_transform = cmds.createNode("transform", name="PosRefFol")
+        follicle_shape = cmds.createNode("follicle", name="PosRefFolShape", parent=follicle_transform)
+        
+        # Connect mesh to follicle
+        cmds.connectAttr(f"{mesh_shape}.worldMatrix[0]", f"{follicle_shape}.inputWorldMatrix")
+        cmds.connectAttr(f"{mesh_shape}.outMesh", f"{follicle_shape}.inputMesh")
+        
+        # Connect follicle's outputs to its transform
+        cmds.connectAttr(f"{follicle_shape}.outTranslate", f"{follicle_transform}.translate")
+        cmds.connectAttr(f"{follicle_shape}.outRotate", f"{follicle_transform}.rotate")
+        
+        # Set UV position to 0.5, 0.5
+        cmds.setAttr(f"{follicle_shape}.parameterU", 0.5)
+        cmds.setAttr(f"{follicle_shape}.parameterV", 0.5)
+        
+        # Create null group inside follicle
+        null_group = cmds.group(empty=True, name="PosRefNull", parent=follicle_transform)
+        
+        print(f"Created reference follicle at UV (0.5, 0.5) on mesh '{mesh_transform}'")
+        
+        # Store the references globally
+        _ref_follicle_transform = follicle_transform
+        _ref_follicle_shape = follicle_shape
+        _ref_null_group = null_group
+        
+        return follicle_transform, follicle_shape, null_group
+        
+    except Exception as e:
+        cmds.warning(f"Error creating reference follicle: {e}")
+        return None, None, None
+
+def create_locator_at_null_position(name_prefix):
+    """
+    Creates a locator with the given prefix at the world position of the reference null group.
+    
+    Args:
+        name_prefix (str): Prefix for the locator name
+        
+    Returns:
+        str: Name of the created locator or None if failed
+    """
+    global _ref_null_group
+    
+    if not _ref_null_group or not cmds.objExists(_ref_null_group):
+        cmds.warning("Reference null group does not exist. Please select mesh first.")
+        return None
+    
+    try:
+        # Get world position of null group
+        null_world_pos = cmds.xform(_ref_null_group, query=True, worldSpace=True, translation=True)
+        
+        # Create locator in world space (not parented to follicle)
+        locator_name = f"{name_prefix}_locator"
+        locator = cmds.spaceLocator(name=locator_name)[0]
+        
+        # Position locator at null's world position
+        cmds.xform(locator, translation=null_world_pos, worldSpace=True)
+        
+        print(f"Created locator '{locator}' at position: {null_world_pos}")
+        return locator
+        
+    except Exception as e:
+        cmds.warning(f"Error creating locator: {e}")
+        return None
 
 def run_step1_logic(name_prefix, existing_mesh_transform=None, existing_mesh_shape=None):
     """
-    Runs the main logic of Step 1: Mesh selection/validation, UV checking, and locator creation at UV (0.5, 0.5).
-    This version is adapted for the multi-locator workflow.
+    Main function for Step 1 logic:
+    - If mesh transform/shape provided, uses them
+    - Otherwise uses currently selected mesh
+    - Creates reference follicle if it doesn't exist
+    - Creates locator with given prefix at the position of reference null
     
     Args:
-        name_prefix (str): Name prefix for the locator.
-        existing_mesh_transform (str, optional): The transform node of an already selected/known mesh.
-        existing_mesh_shape (str, optional): The shape node of an already selected/known mesh.
-    
+        name_prefix (str): Prefix for locator name
+        existing_mesh_transform (str, optional): Name of mesh transform to use
+        existing_mesh_shape (str, optional): Name of mesh shape to use
+        
     Returns:
-        tuple: (mesh_transform, mesh_shape, locator_name) or (None, None, None)
+        tuple: (mesh_transform, mesh_shape, locator_name) or (None, None, None) if failed
     """
+    global _ref_follicle_transform, _ref_follicle_shape, _ref_null_group, _ref_mesh_transform, _ref_mesh_shape
+    
     mesh_transform_to_use = existing_mesh_transform
     mesh_shape_to_use = existing_mesh_shape
-
-    if not mesh_transform_to_use or not mesh_shape_to_use:
-        selected_objects = cmds.ls(selection=True, long=True, type="transform")
-        if not selected_objects:
-            cmds.warning("Please select a polygon mesh.")
-            return None, None, None
+    
+    # If reference follicle already exists and mesh hasn't changed, skip to creating locator
+    if _ref_follicle_transform and _ref_null_group and _ref_mesh_transform == mesh_transform_to_use:
+        print(f"Using existing reference follicle on mesh '{_ref_mesh_transform}'")
+        locator = create_locator_at_null_position(name_prefix)
+        if locator:
+            return _ref_mesh_transform, _ref_mesh_shape, locator
+        return None, None, None
+    
+    # Otherwise, create new reference follicle
+    follicle_transform, follicle_shape, null_group = create_reference_follicle(mesh_transform_to_use, mesh_shape_to_use)
+    
+    if follicle_transform and null_group:
+        _ref_mesh_transform = mesh_transform_to_use
+        _ref_mesh_shape = mesh_shape_to_use
         
-        mesh_transform_to_use = selected_objects[0]
-        shapes = cmds.listRelatives(mesh_transform_to_use, shapes=True, fullPath=True, type="mesh")
-        if not shapes:
-            cmds.warning(f"Selected object '{mesh_transform_to_use}' is not a polygon mesh or has no mesh shape.")
-            return None, None, None
-        mesh_shape_to_use = shapes[0]
+        # Now create the locator
+        locator = create_locator_at_null_position(name_prefix)
+        if locator:
+            return mesh_transform_to_use, mesh_shape_to_use, locator
     
-    # Ensure the identified mesh still exists
-    if not cmds.objExists(mesh_transform_to_use) or not cmds.objExists(mesh_shape_to_use):
-        cmds.warning(f"Mesh '{mesh_transform_to_use}' or its shape '{mesh_shape_to_use}' no longer exists.")
-        return None, None, None
+    return None, None, None
 
-    uv_to_check_u, uv_to_check_v = 0.5, 0.5
-    # It's good practice to check for UV overlaps, though check_uv_overlap might need refinement for robustness.
-    # For now, we'll trust the existing check_uv_overlap function.
-    if check_uv_overlap(mesh_shape_to_use, uv_to_check_u, uv_to_check_v):
-        cmds.warning(f"UV overlapping detected at point ({uv_to_check_u}, {uv_to_check_v}) on '{mesh_shape_to_use}' (or multiple faces found). Please check your UVs.")
-        # Depending on strictness, you might allow creation or force user to fix UVs.
-        # For now, returning None to prevent issues.
-        return None, None, None
-
-    world_point = get_world_space_at_uv(mesh_shape_to_use, uv_to_check_u, uv_to_check_v)
+def clear_reference_follicle():
+    """
+    Clears the stored references to the follicle and null group.
+    This should be called when resetting the tool state.
+    """
+    global _ref_follicle_transform, _ref_follicle_shape, _ref_null_group, _ref_mesh_transform, _ref_mesh_shape
     
-    if world_point:
-        locator_name = create_locator_at_point(world_point, name_prefix)
-        if locator_name:
-            # cmds.select(locator_name, replace=True) # Selection handled by UI tool
-            return mesh_transform_to_use, mesh_shape_to_use, locator_name
-        else:
-            cmds.warning(f"Could not create locator with prefix '{name_prefix}'.")
-            return None, None, None
-    else:
-        cmds.warning(f"Could not get world coordinate at UV point ({uv_to_check_u}, {uv_to_check_v}) for mesh '{mesh_shape_to_use}'.")
-        return None, None, None
+    if _ref_follicle_transform and cmds.objExists(_ref_follicle_transform):
+        try:
+            cmds.delete(_ref_follicle_transform)
+            print(f"Deleted reference follicle '{_ref_follicle_transform}'")
+        except Exception as e:
+            print(f"Could not delete reference follicle: {e}")
+    
+    # Clear all references
+    _ref_follicle_transform = None
+    _ref_follicle_shape = None
+    _ref_null_group = None 
+    _ref_mesh_transform = None
+    _ref_mesh_shape = None
+    print("Cleared all reference follicle data")
 

@@ -26,13 +26,19 @@ def get_uv_at_point(mesh_shape, world_point_mvector):
         cmds.warning(f"Could not get DAG path for mesh shape '{mesh_shape}'.")
         return None
 
-    # Create world point as MPoint - This line is unnecessary because world_point_mvector is already being used.
-    # world_m_point = om.MPoint(world_point_mvector.x, world_point_mvector.y, world_point_mvector.z)
+    # World space point as MPoint
+    world_m_point = om.MPoint(world_point_mvector.x, world_point_mvector.y, world_point_mvector.z)
 
     cpos_node = None # Define here so it can be deleted in case of error
     try:
-        # One of the most reliable methods is to use the `closestPointOnMesh` node.
+        # Create closestPointOnMesh node
         cpos_node = cmds.createNode("closestPointOnMesh")
+        
+        # Get mesh transform node
+        mesh_transform = cmds.listRelatives(mesh_shape, parent=True, fullPath=True)[0]
+        
+        # Connect worldMatrix of mesh transform to node
+        cmds.connectAttr(f"{mesh_transform}.worldMatrix[0]", f"{cpos_node}.inputMatrix")
         
         # Mesh connection
         mesh_attr_to_connect = ""
@@ -48,14 +54,17 @@ def get_uv_at_point(mesh_shape, world_point_mvector):
             
         cmds.connectAttr(mesh_attr_to_connect, f"{cpos_node}.inMesh")
         
+        # Set input position (world space)
         cmds.setAttr(f"{cpos_node}.inPositionX", world_point_mvector.x)
         cmds.setAttr(f"{cpos_node}.inPositionY", world_point_mvector.y)
         cmds.setAttr(f"{cpos_node}.inPositionZ", world_point_mvector.z)
         
+        # Get UV coordinates
         u_val = cmds.getAttr(f"{cpos_node}.result.parameterU")
         v_val = cmds.getAttr(f"{cpos_node}.result.parameterV")
         
         if u_val is not None and v_val is not None:
+            print(f"Found UV coordinates ({u_val}, {v_val}) for point ({world_point_mvector.x}, {world_point_mvector.y}, {world_point_mvector.z})")
             return float(u_val), float(v_val)
         else:
             cmds.warning(f"Could not get UV coordinates using closestPointOnMesh node.")
