@@ -438,20 +438,20 @@ def organize_scene_hierarchy(mesh_transform, follicle_transform, place3d_node, n
     Organizes the scene hierarchy according to specified requirements:
     1. Places mesh under GEO group
     2. Creates RIG group with prefix_Texture_ctrl_grp for follicle
-    3. Places place3dTexture under UTIL group
+    3. Places place3dTexture under UTIL group (if provided)
     4. Sets follicle shape node visibility to off
     5. Sets UTIL group visibility to off
     
     Args:
         mesh_transform (str): The mesh transform node
         follicle_transform (str): The follicle transform node
-        place3d_node (str): The place3dTexture node
+        place3d_node (str): The place3dTexture node (can be None for UV-based method)
         name_prefix (str): User-provided prefix for naming
     Returns:
         str: The (potentially updated) full path of the mesh transform.
     """
-    if not follicle_transform or not place3d_node:
-        cmds.warning("Missing follicle or place3dTexture node for scene organization.")
+    if not follicle_transform:
+        cmds.warning("Missing follicle node for scene organization.")
         # Return original mesh_transform as we can't be sure of its state if other critical nodes are missing
         return cmds.ls(mesh_transform, long=True)[0] if cmds.objExists(mesh_transform) else mesh_transform
 
@@ -522,7 +522,7 @@ def organize_scene_hierarchy(mesh_transform, follicle_transform, place3d_node, n
         for shape in follicle_shapes:
             cmds.setAttr(f"{shape}.visibility", 0)
     
-    # ... existing code for UTIL group ...
+    # Handle place3d_node (if provided) - Modified to handle None case
     util_group_name = "UTIL"
     util_group_long_name = ""
     if not cmds.objExists(util_group_name):
@@ -530,12 +530,12 @@ def organize_scene_hierarchy(mesh_transform, follicle_transform, place3d_node, n
     else:
         util_group_long_name = cmds.ls(util_group_name, long=True)[0]
 
-    if cmds.objExists(place3d_node):
+    if place3d_node and cmds.objExists(place3d_node):
         current_p3d_parent_list = cmds.listRelatives(place3d_node, parent=True, fullPath=True)
         current_p3d_parent_full_path = current_p3d_parent_list[0] if current_p3d_parent_list else None
         if current_p3d_parent_full_path != util_group_long_name:
             cmds.parent(place3d_node, util_group_long_name)
-    else:
+    elif place3d_node:  # place3d_node was provided but doesn't exist
         cmds.warning(f"place3dTexture node '{place3d_node}' not found for parenting under '{util_group_name}'.")
         
     try:

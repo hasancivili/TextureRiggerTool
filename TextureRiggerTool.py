@@ -5,11 +5,13 @@ import importlib
 import step1_logic
 import step2_logic
 import step3_logic
+import step3_uv_logic  # Add import for the new module
 
 # For reloading modules during development (optional)
 importlib.reload(step1_logic)
 importlib.reload(step2_logic)
 importlib.reload(step3_logic)
+importlib.reload(step3_uv_logic)  # Add reload for the new module
 
 class TextureRiggerUI:
     def __init__(self):
@@ -46,6 +48,7 @@ class TextureRiggerUI:
         self.step3_status_label = None
 
         self.sequence_checkboxes = {}  # {prefix: checkbox_widget}
+        self.projection_checkboxes = {}  # {prefix: checkbox_widget} - Add this new line
 
     def on_window_close(self, *args):
         self.reset_tool_state()
@@ -207,7 +210,8 @@ class TextureRiggerUI:
         
         self.texture_path_fields.clear()
         self.select_texture_buttons.clear()
-        self.sequence_checkboxes.clear()  # Clear sequence checkboxes
+        self.sequence_checkboxes.clear()
+        self.projection_checkboxes.clear()  # Clear projection checkboxes
 
         if not self.follicles_data:
             cmds.text(label="No follicles created. Cannot select textures.", parent=self.texture_selection_layout)
@@ -221,11 +225,13 @@ class TextureRiggerUI:
             select_button = cmds.button(label="Select File...", command=lambda ignored_arg, p_captured=prefix: self._on_select_single_texture_click(p_captured))
             cmds.setParent("..")
             
-            # Create sequence checkbox row
-            seq_row_layout = cmds.rowColumnLayout(numberOfColumns=2, columnWidth=[(1, 320), (2, 100)], parent=self.texture_selection_layout, rowSpacing=(1,3))
+            # Create checkboxes row (both sequence and projection)
+            checkboxes_row = cmds.rowColumnLayout(numberOfColumns=3, columnWidth=[(1, 120), (2, 150), (3, 150)], parent=self.texture_selection_layout, rowSpacing=(1,3))
             cmds.text(label="", align="left")  # Spacer
             seq_checkbox = cmds.checkBox(label="is sequence?", value=False, 
                                        changeCommand=lambda state, p_captured=prefix: self._on_sequence_checkbox_changed(p_captured, state))
+            proj_checkbox = cmds.checkBox(label="Projection?", value=True,  # Default to True for backward compatibility
+                                       changeCommand=lambda state, p_captured=prefix: self._on_projection_checkbox_changed(p_captured, state))
             cmds.setParent("..")
             
             # Add separator for visual clarity
@@ -234,12 +240,14 @@ class TextureRiggerUI:
             self.texture_path_fields[prefix] = path_field
             self.select_texture_buttons[prefix] = select_button
             self.sequence_checkboxes[prefix] = seq_checkbox
+            self.projection_checkboxes[prefix] = proj_checkbox
             
             self.textures_data[prefix] = {
                 'file_path': None, 'file_node': None, 'projection_node': None, 
                 'place2d_node': None, 'place3d_node': None, 
                 'layered_texture': None, 'material': None,
-                'is_sequence': False  # New flag for sequence textures
+                'is_sequence': False,  # Flag for sequence textures
+                'use_projection': True  # Default to True for backward compatibility
             }
 
     def _on_sequence_checkbox_changed(self, prefix, state):
@@ -286,6 +294,20 @@ class TextureRiggerUI:
                 else:
                     self.update_step3_status(f"Deactivated sequence mode for '{prefix}'", success=True)
 
+    def _on_projection_checkbox_changed(self, prefix, state):
+        """
+        Handle projection checkbox state changes.
+        
+        Args:
+            prefix (str): Prefix of the texture
+            state (bool): New state of the checkbox
+        """
+        print(f"Projection checkbox for '{prefix}' changed to: {state}")
+        
+        # Update our data structure
+        if prefix in self.textures_data:
+            self.textures_data[prefix]['use_projection'] = state
+
     def _on_select_single_texture_click(self, prefix):
         file_paths = cmds.fileDialog2(fileMode=1, caption=f"Select Texture for Prefix: {prefix}")
         if file_paths and file_paths[0]:
@@ -327,30 +349,56 @@ class TextureRiggerUI:
                 all_successful = False
                 continue
             
-            # Pass the is_sequence flag to run_step3_logic
+            # Get flags
             is_sequence = tex_data.get('is_sequence', False)
+            use_projection = tex_data.get('use_projection', True)
             
-            file_node, projection_node, place2d_node, place3d_node, layered_texture_node, material_node, updated_mesh_transform = step3_logic.run_step3_logic(
-                mesh_transform=self.selected_mesh_transform,
-                image_file_path=texture_file_path,
-                name_prefix=prefix,
-                follicle_transform=created_follicle_transform,
-                is_sequence=is_sequence
-            )
-
-            if file_node:
-                self.textures_data[prefix].update({
-                    'file_node': file_node,
-                    'projection_node': projection_node,
-                    'place2d_node': place2d_node,
-                    'place3d_node': place3d_node,
-                    'layered_texture_node': layered_texture_node,
-                    'material_node': material_node
-                })
-                self.selected_mesh_transform = updated_mesh_transform
+            if use_projection:
+                # Use original projection-based method
+                file_node, projection_node, place2d_node, place3d_node, layered_texture_node, material_node, updated_mesh_transform = step3_logic.run_step3_logic(
+                    mesh_transform=self.selected_mesh_transform,
+                    image_file_path=texture_file_path,
+                    name_prefix=prefix,
+                    follicle_transform=created_follicle_transform,
+                    is_sequence=is_sequence
+                )
+                
+                if file_node:
+                    self.textures_data[prefix].update({
+                        'file_node': file_node,
+                        'projection_node': projection_node,
+                        'place2d_node': place2d_node,
+                        'place3d_node': place3d_node,
+                        'layered_texture_node': layered_texture_node,
+                        'material_node': material_node
+                    })
+                    self.selected_mesh_transform = updated_mesh_transform
+                else:
+                    cmds.warning(f"Texture connection failed for prefix '{prefix}'.")
+                    all_successful = False
             else:
-                cmds.warning(f"Texture connection failed for prefix '{prefix}'.")
-                all_successful = False
+                # Use UV-based method
+                file_node, projection_node, place2d_node, place3d_node, layered_texture_node, material_node, updated_mesh_transform = step3_uv_logic.run_step3_uv_logic(
+                    mesh_transform=self.selected_mesh_transform,
+                    image_file_path=texture_file_path,
+                    name_prefix=prefix,
+                    follicle_transform=created_follicle_transform,
+                    is_sequence=is_sequence
+                )
+                
+                if file_node:
+                    self.textures_data[prefix].update({
+                        'file_node': file_node,
+                        'projection_node': projection_node,  # Will be None for UV method
+                        'place2d_node': place2d_node,
+                        'place3d_node': place3d_node,  # Will be None for UV method
+                        'layered_texture_node': layered_texture_node,
+                        'material_node': material_node
+                    })
+                    self.selected_mesh_transform = updated_mesh_transform
+                else:
+                    cmds.warning(f"Texture connection failed for prefix '{prefix}'.")
+                    all_successful = False
 
         if all_successful:
             cmds.headsUpMessage(f"All selected textures connected and scene organized.", time=5.0)
@@ -370,6 +418,7 @@ class TextureRiggerUI:
         self.texture_path_fields.clear()
         self.select_texture_buttons.clear()
         self.sequence_checkboxes.clear()
+        self.projection_checkboxes.clear()
         cmds.button(self.connect_all_textures_button, edit=True, enable=False)
         self.update_step3_status("Waiting for follicle creation to enable texture selection...")
         self.textures_data.clear()
