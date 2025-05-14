@@ -286,9 +286,9 @@ def setup_follicle_connections(follicle_transform, follicle_shape, node_prefix):
             for cv in cv_list:
                 cv_pos = cmds.pointPosition(cv, world=True)
                 new_pos = [
-                    (cv_pos[0] - curve_center[0]) * 0.15 + curve_center[0],
-                    (cv_pos[1] - curve_center[1]) * 0.15 + curve_center[1],
-                    (cv_pos[2] - curve_center[2]) * 0.15 + curve_center[2]
+                    (cv_pos[0] - curve_center[0]) * 3 + curve_center[0],
+                    (cv_pos[1] - curve_center[1]) * 3 + curve_center[1],
+                    (cv_pos[2] - curve_center[2]) * 3 + curve_center[2]
                 ]
                 cmds.xform(cv, worldSpace=True, translation=new_pos)
             

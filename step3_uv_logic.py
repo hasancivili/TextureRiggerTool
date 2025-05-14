@@ -253,6 +253,8 @@ def connect_texture_using_uvs(mesh_transform, image_file_path, name_prefix, foll
     file_node = cmds.shadingNode('file', asTexture=True, name=f"{name_prefix}_texture")
     # Set the file path
     cmds.setAttr(f"{file_node}.fileTextureName", image_file_path, type="string")
+    # Set defaultColor to [0, 0, 0]
+    cmds.setAttr(f"{file_node}.defaultColor", 0, 0, 0, type="double3")
     
     # Create a place2dTexture node for the file
     place2d_node = cmds.shadingNode('place2dTexture', asUtility=True, name=f"{name_prefix}_place2d")

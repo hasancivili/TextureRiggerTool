@@ -283,8 +283,8 @@ def connect_texture_to_mesh(mesh_transform, image_file_path, name_prefix="textur
     # Create a place3dTexture node for the projection
     place3d_node = cmds.shadingNode('place3dTexture', asUtility=True, name=f"{name_prefix}_place3d")
     
-    # Set the scale of place3dTexture to 0.5
-    cmds.setAttr(f"{place3d_node}.scale", 0.5, 0.5, 0.5, type="double3")
+    # Set the scale of place3dTexture to 1
+    cmds.setAttr(f"{place3d_node}.scale", 3, 3, 3, type="double3")
     
     # Create a projection node
     projection_node = cmds.shadingNode('projection', asUtility=True, name=f"{name_prefix}_projection")
