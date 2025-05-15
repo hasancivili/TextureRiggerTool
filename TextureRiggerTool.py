@@ -16,7 +16,7 @@ importlib.reload(step3_uv_logic)  # Add reload for the new module
 class TextureRiggerUI:
     def __init__(self):
         self.window_name = "textureRiggerMainWindow"
-        self.ui_title = "Texture Rigger 0.0.2"
+        self.ui_title = "Texture Rigger 0.0.3"
 
         self.selected_mesh_transform = None
         self.selected_mesh_shape = None

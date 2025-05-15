@@ -1,7 +1,7 @@
 /*
 2D Texture Rigger Installer
 Drag and drop this file into the Maya viewport to install.
-Copyright 2021 by Hasan Civili. All Rights Reserved. (Adapted for 2D Texture Rigger)
+Copyright 2025 by Hasan Civili. All Rights Reserved. (Adapted for 2D Texture Rigger)
 */
 
 global proc textureRiggerToolInstall() {
