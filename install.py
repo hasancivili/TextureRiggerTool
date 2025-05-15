@@ -107,7 +107,7 @@ except Exception as e_runtime:
                 label=button_label,
                 command=shelf_command,
                 image=icon_path_for_shelf,
-                imageOverlayLabel="TexRig", # Kısa overlay etiketi
+                imageOverlayLabel="", # Kısa overlay etiketi
                 annotation="Runs the 2D Texture Rigger tool.",
                 sourceType="python"
             )
@@ -118,7 +118,7 @@ except Exception as e_runtime:
                 label=button_label,
                 command=shelf_command,
                 image=icon_path_for_shelf,
-                imageOverlayLabel="TexRig", # Kısa overlay etiketi
+                imageOverlayLabel="", # Kısa overlay etiketi
                 annotation="Runs the 2D Texture Rigger tool.",
                 sourceType="python"
             )
